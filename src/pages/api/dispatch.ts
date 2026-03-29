@@ -22,6 +22,7 @@ import { resolveCallRef, redis, normalizePhone } from '../../lib';
 import { logLeadEvent } from '../../lib/supabase';
 import { reRankByAcceptance } from '../../lib/smart-rank';
 import { scoreLeadUrgency, urgencySmsPrefix } from '../../lib/lead-score';
+import { scheduleDispatchTimeout as qScheduleTimeout, scheduleReviewFollowup as qScheduleReview } from '../../lib/qstash';
 
 export const prerender = false;
 
@@ -307,54 +308,23 @@ async function sendLeadSms(
   return res.ok;
 }
 
-/**
- * Schedules a QStash timeout job that auto-advances the dispatch queue if the
- * business doesn't reply within the supply-adaptive window (20 / 45 / 90 seconds).
- *
- * Uses `Upstash-Forward-Authorization` so QStash forwards the DISPATCH_JOB_SECRET
- * bearer token to the timeout handler, matching the main app's auth pattern.
- */
+/** Delegates to lib/qstash.ts — schedules per-business timeout via QStash. */
 async function scheduleDispatchTimeout(
   dispatchId: string,
   businessPhone: string,
   windowSeconds: number,
 ): Promise<void> {
-  const qstashToken = import.meta.env.QSTASH_TOKEN;
-  const siteUrl     = import.meta.env.PUBLIC_SITE_URL;
-  const jobSecret   = import.meta.env.DISPATCH_JOB_SECRET;
-  if (!qstashToken || !siteUrl) return;
-
-  const headers: Record<string, string> = {
-    Authorization:   `Bearer ${qstashToken}`,
-    'Content-Type':  'application/json',
-    'Upstash-Delay': `${windowSeconds}s`,
-    'Upstash-Retries': '0',
-  };
-  // Forward job secret so the timeout handler can verify the caller
-  if (jobSecret) headers['Upstash-Forward-Authorization'] = `Bearer ${jobSecret}`;
-
-  await fetch(
-    `https://qstash.upstash.io/v2/publish/${encodeURIComponent(`${siteUrl}/api/internal/dispatch-timeout`)}`,
-    { method: 'POST', headers, body: JSON.stringify({ dispatchId, businessPhone }) },
-  );
+  const siteUrl   = import.meta.env.PUBLIC_SITE_URL;
+  const jobSecret = import.meta.env.DISPATCH_JOB_SECRET ?? '';
+  if (!siteUrl) return;
+  await qScheduleTimeout(dispatchId, businessPhone, windowSeconds, siteUrl, jobSecret);
 }
 
-/** Schedules a QStash review follow-up job 24 hours from now. */
+/** Delegates to lib/qstash.ts — schedules the 24h review follow-up. */
 async function scheduleReviewFollowup(dispatchId: string): Promise<void> {
-  const qstashUrl   = import.meta.env.QSTASH_URL;
-  const qstashToken = import.meta.env.QSTASH_TOKEN;
-  const siteUrl     = import.meta.env.PUBLIC_SITE_URL;
-  if (!qstashUrl || !qstashToken || !siteUrl) return;
-
-  await fetch(`${qstashUrl}/v2/publish/${encodeURIComponent(`${siteUrl}/api/jobs/review-followup`)}`, {
-    method:  'POST',
-    headers: {
-      Authorization:   `Bearer ${qstashToken}`,
-      'Content-Type':  'application/json',
-      'Upstash-Delay': `${60 * 60 * 24}s`,
-    },
-    body: JSON.stringify({ dispatchId }),
-  });
+  const siteUrl = import.meta.env.PUBLIC_SITE_URL;
+  if (!siteUrl) return;
+  await qScheduleReview(dispatchId, siteUrl);
 }
 
 // ── Response helpers ──────────────────────────────────────────────────────────

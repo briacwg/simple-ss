@@ -15,6 +15,7 @@
 import type { APIRoute } from 'astro';
 import { redis } from '../../../lib';
 import type { DispatchRecord } from '../dispatch';
+import { verifyQStashSignature } from '../../../lib/qstash';
 
 export const prerender = false;
 
@@ -60,47 +61,6 @@ export const POST: APIRoute = async ({ request }) => {
 };
 
 // ── QStash signature verification ────────────────────────────────────────────
-
-/**
- * Verifies the Upstash-Signature header against the current and next signing keys.
- * See: https://upstash.com/docs/qstash/features/security
- */
-async function verifyQStashSignature(request: Request): Promise<boolean> {
-  const currentKey = import.meta.env.QSTASH_CURRENT_SIGNING_KEY;
-  const nextKey    = import.meta.env.QSTASH_NEXT_SIGNING_KEY;
-
-  // Allow unsigned requests in local dev (no keys configured)
-  if (!currentKey && !nextKey) return true;
-
-  const signature = request.headers.get('Upstash-Signature');
-  if (!signature) return false;
-
-  const body = await request.text();
-
-  for (const key of [currentKey, nextKey].filter(Boolean) as string[]) {
-    if (await verifyHmac(key, body, signature)) return true;
-  }
-  return false;
-}
-
-async function verifyHmac(secret: string, body: string, signature: string): Promise<boolean> {
-  try {
-    // QStash uses HMAC-SHA256 over the raw request body, base64url-encoded
-    const key = await crypto.subtle.importKey(
-      'raw',
-      new TextEncoder().encode(secret),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign'],
-    );
-    const expected = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body));
-    const expectedB64 = btoa(String.fromCharCode(...new Uint8Array(expected)))
-      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    return expectedB64 === signature;
-  } catch {
-    return false;
-  }
-}
 
 // ── Twilio SMS helper ─────────────────────────────────────────────────────────
 

@@ -37,6 +37,8 @@ const OPTIONAL_VARS = [
   'SUPABASE_SERVICE_ROLE_KEY',
   'WEBAUTHN_RP_ID',
   'BUSINESS_JWT_SECRET',
+  'STRIPE_SECRET_KEY',
+  'STRIPE_WEBHOOK_SECRET',
 ] as const;
 
 export const GET: APIRoute = async () => {

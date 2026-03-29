@@ -90,6 +90,8 @@ POST /api/jobs/review-followup
 | Auth (tokens) | HMAC-SHA256 (call refs) + HMAC-SHA1 (Twilio webhook sig) via Web Crypto API |
 | Auth (passkeys) | [WebAuthn](https://webauthn.io) via `@simplewebauthn/server` — passkey registration + authentication |
 | Database | [Supabase](https://supabase.com) — dispatch training events, lead analytics, passkeys, workspace settings |
+| Billing | [Stripe](https://stripe.com) — subscription checkout, webhook plan sync |
+| Deployment | [Vercel](https://vercel.com) — `vercel.json` with per-function timeouts, security headers, `/health` rewrite |
 
 ---
 
@@ -165,6 +167,15 @@ POST /api/jobs/review-followup
 6. An `aiSummary` bar replaces the plain category heading when Cerebras inference is available.
 7. A `diagnosisHint` callout (red / amber / blue) surfaces the likely issue cause below the results.
 8. Layer 3 async: each card with a website fires `POST /api/summarize` after render — "Loading business info…" placeholders are replaced with the AI summary on resolve.
+
+### Flow 10 — Stripe Subscription Upgrade
+
+1. Authenticated business owner triggers an upgrade from `/business/dashboard` → `POST /api/stripe/checkout?plan=pro`.
+2. Server creates a Stripe Checkout Session (subscription mode) with `business_phone` and `plan_slug` in subscription metadata.
+3. Stripe redirects to `/business/dashboard?checkout=success` on completion.
+4. `POST /api/stripe/webhook` receives `checkout.session.completed` → upserts `plan_slug` in `business_workspace_settings`.
+5. Subsequent `customer.subscription.updated` / `customer.subscription.deleted` events keep the plan in sync.
+6. Webhook signature is verified via HMAC-SHA256 against `STRIPE_WEBHOOK_SECRET` (Stripe timestamp-prefixed payload).
 
 ### Flow 9 — Business Portal
 
@@ -453,6 +464,36 @@ Revokes a specific passkey. Rejects with `409` if it would remove the last crede
 
 ---
 
+### `POST /api/stripe/checkout`
+Create a Stripe Checkout Session for a plan upgrade.
+
+**Headers:** `Authorization: Bearer <session-token>`
+
+**Request body**
+```json
+{ "plan": "pro" }
+```
+
+**Response**
+```json
+{ "url": "https://checkout.stripe.com/c/pay/...", "sessionId": "cs_live_..." }
+```
+
+Supported plans: `starter`, `pro`, `elite`. Redirects to `/business/dashboard?checkout=success` on completion.
+
+---
+
+### `POST /api/stripe/webhook`
+Stripe webhook — processes subscription lifecycle events to keep `plan_slug` in sync.
+
+**Headers:** `Stripe-Signature` (HMAC-SHA256 verified against `STRIPE_WEBHOOK_SECRET`)
+
+Handled events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`.
+
+Configure your Stripe dashboard webhook endpoint to point to `https://your-domain/api/stripe/webhook`.
+
+---
+
 ### `POST /api/claim`
 Initiate a business ownership claim.
 
@@ -588,6 +629,11 @@ vercel deploy
 | `WEBAUTHN_RP_NAME` | | WebAuthn relying party display name |
 | `BUSINESS_JWT_SECRET` | | Secret for signing business session tokens post-passkey auth (falls back to `DISPATCH_JOB_SECRET`) |
 | `PUBLIC_SITE_URL` | | Canonical site URL — must match `WEBAUTHN_RP_ID` origin for passkeys |
+| `STRIPE_SECRET_KEY` | | Stripe secret key for creating Checkout Sessions |
+| `STRIPE_WEBHOOK_SECRET` | | Stripe webhook signing secret (from dashboard) — used by `/api/stripe/webhook` |
+| `STRIPE_PRICE_STARTER` | | Stripe Price ID for the Starter plan |
+| `STRIPE_PRICE_PRO` | | Stripe Price ID for the Pro plan |
+| `STRIPE_PRICE_ELITE` | | Stripe Price ID for the Elite plan |
 
 ---
 
@@ -629,3 +675,5 @@ Redis keys are **intentionally compatible** with the main ServiceSurfer platform
 - **Credential counters are bumped** on every authentication to detect cloned authenticators.
 - **Supabase service-role key is server-only** — never exposed to the browser. RLS is enabled on all passkey and settings tables.
 - **Dispatch training events log every outcome** (accepted / declined / timeout) with supply level, queue position, and response time for AI model training.
+- **Stripe webhook payloads are HMAC-SHA256 verified** against the timestamp-prefixed body (Stripe's `t=<ts>.body` signing scheme) before any plan_slug mutation occurs.
+- **QStash publish/verify logic is centralised in `lib/qstash.ts`** — `scheduleDispatchTimeout()` and `scheduleReviewFollowup()` use deduplication IDs to prevent double-scheduling on handler retries.
