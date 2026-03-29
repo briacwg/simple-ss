@@ -10,6 +10,7 @@
 
 import type { APIRoute } from 'astro';
 import { redis } from '../../lib';
+import { getSupabase } from '../../lib/supabase';
 
 export const prerender = false;
 
@@ -32,6 +33,10 @@ const OPTIONAL_VARS = [
   'QSTASH_TOKEN',
   'VIDEO_APP_URL',
   'PUBLIC_SITE_URL',
+  'SUPABASE_URL',
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'WEBAUTHN_RP_ID',
+  'BUSINESS_JWT_SECRET',
 ] as const;
 
 export const GET: APIRoute = async () => {
@@ -47,6 +52,16 @@ export const GET: APIRoute = async () => {
       redisOk = pong === 'PONG';
     }
   } catch { /* redis unavailable */ }
+
+  // Check Supabase connectivity (optional — won't affect overall ok status)
+  let supabaseOk = false;
+  try {
+    const sb = getSupabase();
+    if (sb) {
+      const { error } = await sb.from('lead_events').select('id').limit(1);
+      supabaseOk = !error;
+    }
+  } catch { /* supabase unavailable */ }
 
   // Verify required env vars are non-empty (values are never returned)
   const checks: Record<string, boolean> = {};
@@ -64,7 +79,7 @@ export const GET: APIRoute = async () => {
   const ok = redisOk && allRequired;
 
   return new Response(
-    JSON.stringify({ ok, redis: redisOk, checks, optional }),
+    JSON.stringify({ ok, redis: redisOk, supabase: supabaseOk, checks, optional }),
     {
       status: ok ? 200 : 503,
       headers: { 'Content-Type': 'application/json' },

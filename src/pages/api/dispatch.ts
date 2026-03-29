@@ -19,6 +19,7 @@
 
 import type { APIRoute } from 'astro';
 import { resolveCallRef, redis, normalizePhone } from '../../lib';
+import { logLeadEvent } from '../../lib/supabase';
 
 export const prerender = false;
 
@@ -55,6 +56,10 @@ export interface DispatchRecord {
   consumerPhone: string | null;
   problem: string;
   location: string;
+  /** Service category label (e.g. "plumber") — used for training analytics. */
+  serviceLabel: string | null;
+  /** Location grid cell (e.g. "418:-876") — used for training analytics. */
+  locationCell: string | null;
   createdAt: number;
   smsSentAt: number | null;
   acceptedAt: number | null;
@@ -164,6 +169,11 @@ export const POST: APIRoute = async ({ request }) => {
 
   const windowSec = getWindowSeconds(allBusinesses.length);
 
+  const serviceLabel = body.serviceLabel ? String(body.serviceLabel).slice(0, 80) : null;
+  const locationCell = body.lat != null && body.lng != null
+    ? `${Math.round(Number(body.lat) * 10)}:${Math.round(Number(body.lng) * 10)}`
+    : null;
+
   const record: DispatchRecord = {
     dispatchId,
     businessPhone:      primaryPhone,
@@ -175,6 +185,8 @@ export const POST: APIRoute = async ({ request }) => {
     consumerPhone,
     problem,
     location,
+    serviceLabel,
+    locationCell,
     createdAt:    now,
     smsSentAt:    null,
     acceptedAt:   null,
@@ -223,6 +235,23 @@ export const POST: APIRoute = async ({ request }) => {
   if (consumerPhone) {
     await scheduleReviewFollowup(dispatchId).catch(() => null);
   }
+
+  // Log dispatch_sent lead events for each notified business (analytics + training)
+  await Promise.all(
+    notifySlice.map((b, i) =>
+      smsSentResults[i]
+        ? logLeadEvent({
+            dispatch_id:    dispatchId,
+            business_phone: b.phone,
+            event_type:     'dispatch_sent',
+            service_label:  serviceLabel,
+            location_cell:  locationCell,
+            consumer_phone: consumerPhone,
+            meta:           { supplyLevel, queuePosition: i, windowSeconds: windowSec },
+          }).catch(() => null)
+        : Promise.resolve(),
+    ),
+  );
 
   return json({ dispatchId, supplyLevel, notified: notifySlice.length, windowSeconds: windowSec });
 };

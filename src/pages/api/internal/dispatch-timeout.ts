@@ -14,6 +14,7 @@ import type { APIRoute } from 'astro';
 import { redis } from '../../../lib';
 import { DK, BPDK, DISPATCH_TTL, type DispatchRecord } from '../dispatch';
 import { advanceQueue } from '../webhooks/sms-inbound';
+import { logTrainingEvent, logLeadEvent } from '../../../lib/supabase';
 
 export const prerender = false;
 
@@ -64,6 +65,31 @@ export const POST: APIRoute = async ({ request }) => {
   // Remove the stale phone index
   await r.del(BPDK(businessPhone)).catch(() => null);
   await r.set(DK(dispatchId), JSON.stringify(updated), { ex: DISPATCH_TTL }).catch(() => null);
+
+  // Log training event and lead event for timeout outcome
+  const responseMs = entry.notifiedAt ? Date.now() - entry.notifiedAt : null;
+  await Promise.all([
+    logTrainingEvent({
+      dispatch_id:    dispatchId,
+      business_phone: businessPhone,
+      service_label:  record.serviceLabel ?? null,
+      location_cell:  record.locationCell ?? null,
+      supply_level:   record.supplyLevel,
+      window_seconds: record.windowSeconds,
+      outcome:        'timeout',
+      response_ms:    null,
+      queue_position: queueIdx,
+    }).catch(() => null),
+    logLeadEvent({
+      dispatch_id:    dispatchId,
+      business_phone: businessPhone,
+      event_type:     'dispatch_timeout',
+      service_label:  record.serviceLabel ?? null,
+      location_cell:  record.locationCell ?? null,
+      consumer_phone: record.consumerPhone,
+      meta:           { supplyLevel: record.supplyLevel, queuePosition: queueIdx, windowSeconds: record.windowSeconds, responseMs },
+    }).catch(() => null),
+  ]);
 
   // Advance to next business — this function handles queue exhaustion and consumer notification
   await advanceQueue(r, updated, queueIdx);

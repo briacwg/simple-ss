@@ -19,6 +19,7 @@
 import type { APIRoute } from 'astro';
 import { redis, normalizePhone, createCallSession, bridgeNumber } from '../../../lib';
 import { DK, BPDK, DISPATCH_TTL, type DispatchRecord, type QueuedBusiness } from '../dispatch';
+import { logTrainingEvent, logLeadEvent } from '../../../lib/supabase';
 
 export const prerender = false;
 
@@ -114,6 +115,32 @@ async function handleAccept(
   // Remove the phone index so no more replies are routed here
   await r.del(BPDK(businessPhone)).catch(() => null);
 
+  // Log training event and lead event for accepted outcome
+  const entry = record.businessQueue[queueIdx];
+  const responseMs = entry?.notifiedAt ? now - entry.notifiedAt : null;
+  await Promise.all([
+    logTrainingEvent({
+      dispatch_id:    record.dispatchId,
+      business_phone: businessPhone,
+      service_label:  record.serviceLabel ?? null,
+      location_cell:  record.locationCell ?? null,
+      supply_level:   record.supplyLevel,
+      window_seconds: record.windowSeconds,
+      outcome:        'accepted',
+      response_ms:    responseMs,
+      queue_position: queueIdx,
+    }).catch(() => null),
+    logLeadEvent({
+      dispatch_id:    record.dispatchId,
+      business_phone: businessPhone,
+      event_type:     'dispatch_accepted',
+      service_label:  record.serviceLabel ?? null,
+      location_cell:  record.locationCell ?? null,
+      consumer_phone: record.consumerPhone,
+      meta:           { supplyLevel: record.supplyLevel, queuePosition: queueIdx, responseMs },
+    }).catch(() => null),
+  ]);
+
   // Notify the consumer so they can call the accepted business
   if (record.consumerPhone) {
     await notifyConsumerAccepted(
@@ -141,6 +168,32 @@ async function handleDecline(
 
   // Remove phone index for declined business
   await r.del(BPDK(businessPhone)).catch(() => null);
+
+  // Log training event and lead event for declined outcome
+  const declinedEntry = record.businessQueue[queueIdx];
+  const declineResponseMs = declinedEntry?.notifiedAt ? Date.now() - declinedEntry.notifiedAt : null;
+  await Promise.all([
+    logTrainingEvent({
+      dispatch_id:    record.dispatchId,
+      business_phone: businessPhone,
+      service_label:  record.serviceLabel ?? null,
+      location_cell:  record.locationCell ?? null,
+      supply_level:   record.supplyLevel,
+      window_seconds: record.windowSeconds,
+      outcome:        'declined',
+      response_ms:    declineResponseMs,
+      queue_position: queueIdx,
+    }).catch(() => null),
+    logLeadEvent({
+      dispatch_id:    record.dispatchId,
+      business_phone: businessPhone,
+      event_type:     'dispatch_declined',
+      service_label:  record.serviceLabel ?? null,
+      location_cell:  record.locationCell ?? null,
+      consumer_phone: record.consumerPhone,
+      meta:           { supplyLevel: record.supplyLevel, queuePosition: queueIdx, responseMs: declineResponseMs },
+    }).catch(() => null),
+  ]);
 
   const updated: DispatchRecord = { ...record, businessQueue: updatedQueue };
 

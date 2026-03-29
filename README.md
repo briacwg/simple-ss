@@ -86,6 +86,8 @@ POST /api/jobs/review-followup
 | Async jobs | [QStash](https://upstash.com/docs/qstash) (dispatch timeouts + review follow-up) |
 | Geolocation | Browser API → ip-api.com / ipapi.co fallback |
 | Auth (tokens) | HMAC-SHA256 (call refs) + HMAC-SHA1 (Twilio webhook sig) via Web Crypto API |
+| Auth (passkeys) | [WebAuthn](https://webauthn.io) via `@simplewebauthn/server` — passkey registration + authentication |
+| Database | [Supabase](https://supabase.com) — dispatch training events, lead analytics, passkeys, workspace settings |
 
 ---
 
@@ -132,9 +134,24 @@ POST /api/jobs/review-followup
 ### Flow 5 — AI Workspace
 
 1. Business owner submits a question (e.g. *"How should I price a water heater replacement?"*).
-2. `POST /api/workspace` passes the question + business context to Cerebras.
-3. Returns a direct answer + 3 actionable tips personalised to the business's service category.
-4. Falls back to curated keyword-matched advice if Cerebras is unavailable.
+2. `POST /api/workspace` loads stored settings from Supabase (tone, answerLength, bannedClaims, requiredPhrases).
+3. Passes the question + business context to Cerebras with a tone-adaptive system prompt.
+4. Post-processes the response: detects banned claims, checks for required phrases, applies plan-based feature gating.
+5. Falls back to curated keyword-matched advice if Cerebras is unavailable.
+
+### Flow 6 — WebAuthn Passkey Authentication
+
+1. Business owner initiates registration: `POST /api/business/passkeys/register/start` returns WebAuthn options + stores a challenge in Supabase (5-minute TTL).
+2. Browser calls `@simplewebauthn/browser startRegistration()` — the authenticator signs the challenge.
+3. `POST /api/business/passkeys/register/finish` verifies the response, persists the credential (`user_passkeys`), marks challenge as used.
+4. On subsequent logins: `POST /api/business/passkeys/authenticate/start` → `finish` → returns a signed 24-hour session token (HMAC-SHA256).
+
+### Flow 7 — Business Dashboard
+
+1. Authenticated business phone calls `GET /api/dashboard?phone=+1…`.
+2. Returns pre-aggregated 30-day metrics from the `business_dashboard_metrics` cache (refreshed hourly).
+3. On cache miss / stale: live-queries `lead_events` + `dispatch_training_events` from Supabase, upserts fresh metrics.
+4. Metrics include: leads received, calls, dispatches, acceptance rate, avg response time, top service categories.
 
 ---
 
@@ -261,7 +278,7 @@ QStash webhook — sent automatically 24 hours after a dispatch. Sends a review-
 ---
 
 ### `POST /api/workspace`
-AI Workspace — Cerebras-powered business coaching with a Redis sliding-window rate limit (20 req/hr per phone).
+AI Workspace — Cerebras-powered business coaching with tone config, compliance checking, and plan gating.
 
 **Request body**
 ```json
@@ -270,19 +287,101 @@ AI Workspace — Cerebras-powered business coaching with a Redis sliding-window 
   "serviceLabel": "HVAC technician",
   "question": "How should I price a water heater replacement?",
   "leadContext": "Customer's water heater stopped working, needs same-day service",
-  "businessPhone": "+13125550100"
+  "businessPhone": "+13125550100",
+  "tone": "direct",
+  "answerLength": "balanced",
+  "bannedClaims": ["cheapest", "guaranteed lowest price"],
+  "requiredPhrases": ["licensed and insured"],
+  "planSlug": "pro"
 }
 ```
 
 **Response**
 ```json
 {
-  "answer": "Price water heater replacements at $800–$1,400 depending on unit type and install complexity.",
-  "tips": ["Include haul-away of old unit in your price", "Quote labour and parts separately", "Offer a 1-year warranty to differentiate from competitors"],
+  "answer": "Price at $900–$1,400 depending on unit and install complexity. Licensed and insured pros command 15% premium.",
+  "tips": ["Quote parts and labour separately", "Include haul-away to differentiate", "Offer 1-year warranty"],
   "provider": "cerebras",
-  "latencyMs": 312
+  "latencyMs": 312,
+  "flaggedClaims": [],
+  "missingPhrases": [],
+  "planSlug": "pro"
 }
 ```
+
+**Plan gating:** `free` plan receives `short` answers + 2 tips only; `starter`/`pro`/`elite` receive full features.
+
+---
+
+### `GET /api/workspace-settings?phone=+1…` / `PUT /api/workspace-settings`
+Read and update per-business AI Workspace configuration stored in Supabase.
+
+**PUT body**
+```json
+{
+  "businessPhone": "+13125550100",
+  "tone": "premium",
+  "answerLength": "detailed",
+  "bannedClaims": ["cheapest in town"],
+  "requiredPhrases": ["licensed and insured", "free estimate"],
+  "escalateToCall": true,
+  "escalateToVideo": false,
+  "planSlug": "pro"
+}
+```
+
+---
+
+### `GET /api/dashboard?phone=+1…`
+Business performance dashboard — 30-day rolling metrics.
+
+**Response**
+```json
+{
+  "business_phone": "+13125550100",
+  "leads_30d": 42,
+  "calls_30d": 18,
+  "dispatches_30d": 42,
+  "accepted_30d": 31,
+  "declined_30d": 7,
+  "timeout_30d": 4,
+  "acceptance_rate": 73.8,
+  "avg_response_ms": 22400,
+  "top_service_labels": ["HVAC technician", "furnace repair"],
+  "updated_at": "2026-03-29T12:00:00Z",
+  "cached": true
+}
+```
+
+---
+
+### `POST /api/business/passkeys/register/start`
+Step 1 of passkey registration — returns `PublicKeyCredentialCreationOptionsJSON`.
+
+**Request body:** `{ "userId": "uuid", "userName": "jane@example.com", "displayName": "Jane Smith" }`
+
+---
+
+### `POST /api/business/passkeys/register/finish`
+Step 2 — verifies registration response, persists credential.
+
+**Request body:** `{ "userId": "uuid", "response": <RegistrationResponseJSON> }`
+**Response:** `{ "verified": true, "credentialId": "abc..." }`
+
+---
+
+### `POST /api/business/passkeys/authenticate/start`
+Step 1 of passkey authentication — returns `PublicKeyCredentialRequestOptionsJSON`.
+
+**Request body:** `{ "userId": "uuid" }` (omit `userId` for discoverable/passkey-first flow)
+
+---
+
+### `POST /api/business/passkeys/authenticate/finish`
+Step 2 — verifies assertion, bumps counter, returns signed session token.
+
+**Request body:** `{ "userId": "uuid", "response": <AuthenticationResponseJSON> }`
+**Response:** `{ "verified": true, "token": "<hmac-signed-session-token>", "userId": "uuid" }`
 
 ---
 
@@ -415,7 +514,12 @@ vercel deploy
 | `QSTASH_TOKEN` | | Upstash QStash auth token |
 | `QSTASH_CURRENT_SIGNING_KEY` | | QStash webhook signature verification key |
 | `QSTASH_NEXT_SIGNING_KEY` | | QStash webhook signature verification key (rotation) |
-| `PUBLIC_SITE_URL` | | Canonical site URL used in QStash callback URLs and SMS review links |
+| `SUPABASE_URL` | | Supabase project URL (required for analytics, passkeys, dashboard, workspace settings) |
+| `SUPABASE_SERVICE_ROLE_KEY` | | Supabase service-role key |
+| `WEBAUTHN_RP_ID` | | WebAuthn relying party domain (e.g. `simple.servicesurfer.app`) |
+| `WEBAUTHN_RP_NAME` | | WebAuthn relying party display name |
+| `BUSINESS_JWT_SECRET` | | Secret for signing business session tokens post-passkey auth (falls back to `DISPATCH_JOB_SECRET`) |
+| `PUBLIC_SITE_URL` | | Canonical site URL — must match `WEBAUTHN_RP_ID` origin for passkeys |
 
 ---
 
@@ -449,3 +553,8 @@ Redis keys are **intentionally compatible** with the main ServiceSurfer platform
 - **QStash review webhooks are HMAC-SHA256 verified** with current + next key rotation support.
 - **Business claiming codes expire in 15 minutes** with a per-(placeId+phone) dedup lock preventing replay.
 - **AI Workspace is rate-limited** at 20 requests/hour per business phone using a Redis sorted-set sliding window.
+- **Passkey challenges expire in 5 minutes** and are single-use (marked `used_at` on successful verification) to prevent replay attacks.
+- **Session tokens are HMAC-SHA256 signed** (payload: `userId.exp`) with `BUSINESS_JWT_SECRET` and carry a 24-hour expiry.
+- **Credential counters are bumped** on every authentication to detect cloned authenticators.
+- **Supabase service-role key is server-only** — never exposed to the browser. RLS is enabled on all passkey and settings tables.
+- **Dispatch training events log every outcome** (accepted / declined / timeout) with supply level, queue position, and response time for AI model training.

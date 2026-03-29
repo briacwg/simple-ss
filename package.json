@@ -8,6 +8,8 @@
   },
   "dependencies": {
     "@astrojs/vercel": "^9.0.4",
+    "@simplewebauthn/server": "^13.3.0",
+    "@supabase/supabase-js": "^2.100.1",
     "@upstash/redis": "^1.36.1",
     "astro": "^5.16.5"
   }
