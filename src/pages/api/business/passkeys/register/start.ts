@@ -39,13 +39,13 @@ export const POST: APIRoute = async ({ request }) => {
   if (!sb) return err('database unavailable', 503);
 
   // Fetch existing credentials to populate excludeCredentials (prevents re-registration)
-  const { data: existingKeys } = await sb
+  const existingResult = await sb
     .from('user_passkeys')
     .select('credential_id, transports')
     .eq('user_id', userId)
-    .catch(() => ({ data: null }));
+    .then(r => r, () => ({ data: null })) as { data: Array<{ credential_id: string; transports: string[] }> | null };
 
-  const excludeCredentials = (existingKeys ?? []).map(k => ({
+  const excludeCredentials = (existingResult.data ?? []).map(k => ({
     id:         k.credential_id,
     transports: (k.transports ?? []) as AuthenticatorTransport[],
   }));
@@ -75,7 +75,7 @@ export const POST: APIRoute = async ({ request }) => {
     challenge:  options.challenge,
     expires_at: expiresAt,
     used_at:    null,
-  });
+  } as never);
 
   if (dbError) {
     console.error('[passkeys/register/start] DB error:', dbError.message);

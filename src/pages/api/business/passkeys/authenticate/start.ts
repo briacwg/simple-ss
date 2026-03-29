@@ -14,7 +14,7 @@
 
 import type { APIRoute } from 'astro';
 import { generateAuthenticationOptions } from '@simplewebauthn/server';
-import type { AuthenticatorTransportFuture } from '@simplewebauthn/types';
+import type { AuthenticatorTransportFuture } from '@simplewebauthn/server';
 import { getSupabase } from '../../../../../lib/supabase';
 import { json, err } from '../../../../../lib/api-helpers';
 
@@ -33,13 +33,13 @@ export const POST: APIRoute = async ({ request }) => {
   let allowCredentials: Array<{ id: string; transports?: AuthenticatorTransportFuture[] }> = [];
 
   if (userId) {
-    const { data: keys } = await sb
+    const keysResult = await sb
       .from('user_passkeys')
       .select('credential_id, transports')
       .eq('user_id', userId)
-      .catch(() => ({ data: null }));
+      .then(r => r, () => ({ data: null })) as { data: Array<{ credential_id: string; transports: string[] }> | null };
 
-    allowCredentials = (keys ?? []).map(k => ({
+    allowCredentials = (keysResult.data ?? []).map(k => ({
       id:         k.credential_id,
       transports: (k.transports ?? []) as AuthenticatorTransportFuture[],
     }));
@@ -66,7 +66,7 @@ export const POST: APIRoute = async ({ request }) => {
       challenge:  options.challenge,
       expires_at: expiresAt,
       used_at:    null,
-    }).catch(() => null);
+    } as never).then(() => null, () => null);
   }
 
   // For discoverable flow, embed the challenge in the response for the finish step

@@ -41,11 +41,16 @@ export const GET: APIRoute = async ({ request }) => {
   const sb = getSupabase();
   if (!sb) return err('database unavailable', 503);
 
+  type PasskeyRow = {
+    credential_id: string; friendly_name: string | null; device_type: string | null;
+    backed_up: boolean | null; transports: string[]; last_used_at: string | null; created_at: string;
+  };
   const { data, error } = await sb
     .from('user_passkeys')
     .select('credential_id, friendly_name, device_type, backed_up, transports, last_used_at, created_at')
     .eq('user_id', session.userId)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .then(r => r, () => ({ data: null, error: new Error('query failed') })) as { data: PasskeyRow[] | null; error: Error | null };
 
   if (error) return err('failed to load passkeys', 500);
 

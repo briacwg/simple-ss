@@ -17,7 +17,7 @@
 
 import type { APIRoute } from 'astro';
 import { verifyRegistrationResponse } from '@simplewebauthn/server';
-import type { RegistrationResponseJSON } from '@simplewebauthn/types';
+import type { RegistrationResponseJSON } from '@simplewebauthn/server';
 import { getSupabase } from '../../../../../lib/supabase';
 import { json } from '../../../../../lib/api-helpers';
 
@@ -49,7 +49,7 @@ export const POST: APIRoute = async ({ request }) => {
     .order('created_at', { ascending: false })
     .limit(1)
     .single()
-    .catch(() => ({ data: null }));
+    .then(r => r, () => ({ data: null })) as { data: { id: string; challenge: string; expires_at: string; used_at: string | null } | null };
 
   if (!challengeRow) return err('no valid challenge found — please restart registration', 400);
 
@@ -77,25 +77,26 @@ export const POST: APIRoute = async ({ request }) => {
   // Mark the challenge as used to prevent replay
   await sb
     .from('passkey_challenges')
-    .update({ used_at: new Date().toISOString() })
+    .update({ used_at: new Date().toISOString() } as never)
     .eq('id', challengeRow.id)
-    .catch(() => null);
+    .then(() => null, () => null);
 
   // Encode the public key as base64url for storage
   const pubKeyB64 = Buffer.from(credential.publicKey).toString('base64url');
 
   // Persist the new credential
+  const credAny = credential as unknown as Record<string, unknown>;
   const { error: insertError } = await sb.from('user_passkeys').insert({
     user_id:       userId,
     credential_id: credential.id,
     public_key:    pubKeyB64,
     counter:       credential.counter,
     transports:    (regResponse.response.transports ?? []) as string[],
-    device_type:   credential.deviceType ?? null,
-    backed_up:     credential.backedUp   ?? null,
+    device_type:   (credAny['deviceType'] as string | undefined) ?? null,
+    backed_up:     (credAny['backedUp'] as boolean | undefined) ?? null,
     friendly_name: body.friendlyName ? String(body.friendlyName).slice(0, 80) : null,
     last_used_at:  null,
-  });
+  } as never);
 
   if (insertError) {
     // Unique constraint violation means this credential is already registered

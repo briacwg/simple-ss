@@ -24,7 +24,7 @@
 
 import type { APIRoute } from 'astro';
 import { verifyAuthenticationResponse } from '@simplewebauthn/server';
-import type { AuthenticationResponseJSON } from '@simplewebauthn/types';
+import type { AuthenticationResponseJSON } from '@simplewebauthn/server';
 import { getSupabase } from '../../../../../lib/supabase';
 import { mintSessionToken } from '../../../../../lib/session';
 import { json } from '../../../../../lib/api-helpers';
@@ -55,7 +55,7 @@ export const POST: APIRoute = async ({ request }) => {
       .select('user_id')
       .eq('credential_id', credId)
       .single()
-      .catch(() => ({ data: null }));
+      .then(r => r, () => ({ data: null })) as { data: { user_id: string } | null };
     if (!keyRow) return err('credential not found', 400);
     userId = keyRow.user_id;
   }
@@ -74,7 +74,7 @@ export const POST: APIRoute = async ({ request }) => {
           .order('created_at', { ascending: false })
           .limit(1)
           .single()
-          .catch(() => ({ data: null }));
+          .then(r => r, () => ({ data: null })) as { data: { id: string; challenge: string } | null };
         return data?.challenge ?? null;
       })();
 
@@ -85,9 +85,9 @@ export const POST: APIRoute = async ({ request }) => {
     .from('user_passkeys')
     .select('credential_id, public_key, counter, transports')
     .eq('credential_id', authResponse.id)
-    .eq('user_id', userId)
+    .eq('user_id', userId!)
     .single()
-    .catch(() => ({ data: null }));
+    .then(r => r, () => ({ data: null })) as { data: { credential_id: string; public_key: string; counter: number; transports: string[] } | null };
 
   if (!credRow) return err('credential not found for this user', 400);
 
@@ -110,7 +110,7 @@ export const POST: APIRoute = async ({ request }) => {
         id:         credRow.credential_id,
         publicKey:  pubKeyBytes,
         counter:    credRow.counter,
-        transports: (credRow.transports ?? []) as import('@simplewebauthn/types').AuthenticatorTransportFuture[],
+        transports: (credRow.transports ?? []) as import('@simplewebauthn/server').AuthenticatorTransportFuture[],
       },
     });
   } catch (e) {
@@ -125,27 +125,26 @@ export const POST: APIRoute = async ({ request }) => {
   // Bump counter and update last_used_at
   await sb
     .from('user_passkeys')
-    .update({ counter: authenticationInfo.newCounter, last_used_at: new Date().toISOString() })
+    .update({ counter: authenticationInfo.newCounter, last_used_at: new Date().toISOString() } as never)
     .eq('credential_id', credRow.credential_id)
-    .catch(() => null);
+    .then(() => null, () => null);
 
   // Mark challenge as used
   if (!body.challenge) {
     await sb
       .from('passkey_challenges')
-      .update({ used_at: new Date().toISOString() })
-      .eq('user_id', userId)
+      .update({ used_at: new Date().toISOString() } as never)
+      .eq('user_id', userId!)
       .eq('purpose', 'authenticate')
       .is('used_at', null)
-      .catch(() => null);
+      .then(() => null, () => null);
   }
 
-  // Log the auth event
-  await sb.from('passkey_auth_events').insert({
-    user_id:       userId,
-    credential_id: credRow.credential_id,
-    verified_at:   new Date().toISOString(),
-  }).catch(() => null);
+  // Log the auth event (best-effort, table may not exist in all environments)
+  await (sb as unknown as { from: (t: string) => { insert: (v: unknown) => PromiseLike<unknown> } })
+    .from('passkey_auth_events')
+    .insert({ user_id: userId, credential_id: credRow.credential_id, verified_at: new Date().toISOString() })
+    .then(() => null, () => null);
 
   // Issue a signed session token (delegates to shared lib/session.ts)
   const token = await mintSessionToken(userId);
