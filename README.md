@@ -23,7 +23,7 @@ Browser (results cards)               ├─ GET /api/dashboard     → 30d metr
   │  user taps "Call" or "Send request"
   ▼
 POST /api/call                          POST /api/dispatch (supply-adaptive)
-  ├─ resolveCallRef() — HMAC verify       ├─ reRankByAcceptance() — acceptance + review scores
+  ├─ resolveCallRef() — HMAC verify       ├─ reRankByAcceptance() — 4-signal composite score
   ├─ createCallSession() — PIN + token    ├─ scoreLeadUrgency() — urgency prefix
   └─ returns telHref: tel:BRIDGE,PIN      ├─ notify 1–3 businesses simultaneously
   │                                       ├─ QStash 5-min timeout per business
@@ -118,9 +118,11 @@ POST /api/review
 ### Flow 2 — Supply-Adaptive Dispatch Loop
 
 1. `POST /api/dispatch` receives the consumer request + ranked business list.
-2. **`reRankByAcceptance()`** re-orders candidates using two signals fetched in parallel from Supabase:
-   - Historical **acceptance rates** (specific to this service + location cell, and general across all leads).
-   - Consumer **review star ratings** (from `lead_events` `review_received` events) — applied as a quality multiplier once a business has ≥ 3 reviews.
+2. **`reRankByAcceptance()` (v3)** re-orders candidates using four signals fetched in parallel from Supabase:
+   - **Acceptance-rate multiplier** `[0.6→1.4]` — precision-weighted blend of specific (same service + location cell) and general acceptance rates.
+   - **Review quality multiplier** `[0.85→1.15]` — average star rating from `lead_events`, applied once ≥ 3 reviews exist.
+   - **Temporal multiplier** `[0.90→1.10]` — acceptance rate in the current 3-hour UTC bucket vs overall; boosts businesses active right now.
+   - **Response-time multiplier** `[0.95→1.05]` — normalised average accepted `response_ms` (faster = higher); predicts dispatch-window compliance.
    - Falls back to the original Google Places order if Supabase is unavailable.
 3. **Supply level** is computed from the number of available businesses:
    - `high` (≥4): notify top 1 only — quality over quantity
@@ -563,7 +565,35 @@ Stripe webhook — processes subscription lifecycle events to keep `plan_slug` i
 
 Handled events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`.
 
+**Idempotency:** Each `event.id` is stored in Redis (`ss:stripe:event:{id}`, 24 h TTL) on first processing. Replayed events return `{ received: true, deduplicated: true }` without touching the database — safe for Stripe's at-least-once delivery guarantee.
+
 Configure your Stripe dashboard webhook endpoint to point to `https://your-domain/api/stripe/webhook`.
+
+---
+
+### `GET /api/internal/training-export`
+Export dispatch training data as a JSONL fine-tuning dataset.
+
+**Headers:** `Authorization: Bearer <DISPATCH_JOB_SECRET>`
+
+**Query parameters**
+
+| Parameter | Default | Description |
+|---|---|---|
+| `phone` | required | Business phone to export data for |
+| `limit` | 500 | Max rows (1–2000) |
+| `outcome` | — | Filter: `accepted` \| `declined` \| `timeout` |
+| `format` | `jsonl` | `jsonl` (NDJSON file) or `json` (array) |
+
+**Response (JSONL):** One training example per line in OpenAI chat-completion format:
+```jsonl
+{"messages":[{"role":"system","content":"You are a dispatch-acceptance scoring model..."},{"role":"user","content":"Service: Plumber\nLocation cell: 418:-876\nSupply level: normal\nQueue position: 1\nResponse window: 300s"},{"role":"assistant","content":"ACCEPT"}]}
+```
+
+The output file can be uploaded directly to the OpenAI fine-tuning API:
+```sh
+openai api fine_tuning.jobs.create -t training-export.jsonl -m gpt-4o-mini
+```
 
 ---
 
@@ -773,7 +803,8 @@ vercel deploy
 | Claim dedup lock | `ss:claim:lock:{placeId}:{phone}` | 15 minutes |
 | SMS opt-out | `ss:sms:optout:{phone}` | permanent |
 | AI Workspace rate limit | `ss:workspace:rl:{phone}` | 1 hour (sliding window) |
-| Smart-rank scores (acceptance + reviews) | `ss:smart-rank:v2:{label}:{cell}:{phones}` | 10 minutes |
+| Smart-rank scores (v3) | `ss:smart-rank:v3:b{bucket}:{label}:{cell}:{phones}` | 3 minutes |
+| Stripe webhook event dedup | `ss:stripe:event:{event_id}` | 24 hours |
 | Website summary | `sr:place:v1:{placeId}:website_summary:{hex12}` | 30 days |
 | Summarize rate limit | `ss:summarize:rl:{ip}` | 60 seconds (sliding window) |
 
@@ -796,7 +827,7 @@ Redis keys are **intentionally compatible** with the main ServiceSurfer platform
 - **Credential counters are bumped** on every authentication to detect cloned authenticators.
 - **Supabase service-role key is server-only** — never exposed to the browser. RLS is enabled on all passkey and settings tables.
 - **Dispatch training events log every outcome** (accepted / declined / timeout) with supply level, queue position, and response time for AI model training.
-- **Stripe webhook payloads are HMAC-SHA256 verified** against the timestamp-prefixed body (Stripe's `t=<ts>.body` signing scheme) before any plan_slug mutation occurs.
+- **Stripe webhook payloads are HMAC-SHA256 verified** against the timestamp-prefixed body (Stripe's `t=<ts>.body` signing scheme) before any plan_slug mutation occurs. Each `event.id` is stored in Redis with a 24 h TTL; replays are acknowledged without re-applying database mutations.
 - **QStash publish/verify logic is centralised in `lib/qstash.ts`** — `scheduleDispatchTimeout()` and `scheduleReviewFollowup()` use deduplication IDs to prevent double-scheduling on handler retries.
 - **Consumer reviews are idempotent and state-gated.** `/api/review` enforces a one-review-per-dispatch guard (409 on duplicate) and only accepts submissions for dispatches in `accepted` or `review_sent` state — preventing reviews on expired or unaccepted leads. Redis TTL is preserved via `r.ttl()` rather than a stale derived timestamp.
 - **Dispatch is idempotent within a 5-minute window.** `POST /api/dispatch` checks a dedup key (`ss:dispatch:dedup:{phone}:{callRefPrefix}`) before creating a new dispatch record. Button double-taps and network retries return the existing `dispatchId` with `{ deduplicated: true }` instead of sending duplicate lead SMS messages to businesses. The key is scoped to consumerPhone × primary callRef so re-dispatching to a different business still works.
