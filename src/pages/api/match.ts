@@ -26,6 +26,7 @@ import type { APIRoute } from 'astro';
 import { smartMatch, searchPlaces, redis } from '../../lib';
 import { inferServiceIntentHint, inferDiagnosisHint } from '../../lib/intent';
 import { scoreLeadUrgency } from '../../lib/lead-score';
+import { getCachedSummary } from '../../lib/website-summary';
 import { json, err } from '../../lib/api-helpers';
 
 export const prerender = false;
@@ -97,8 +98,26 @@ export const POST: APIRoute = async ({ request }) => {
   // Lead urgency scoring — used by the consumer UI to surface "URGENT" callouts
   const urgency = scoreLeadUrgency(query);
 
+  const rawBusinesses = businesses.length ? businesses : initialResults;
+
+  // Attach any pre-cached website summaries to the top 3 results so the
+  // client can render "Why this business" instantly without a separate fetch.
+  const top3 = rawBusinesses.slice(0, 3);
+  const cachedSummaries = await Promise.all(
+    top3.map((b: Record<string, unknown>) =>
+      b.placeId && b.website
+        ? getCachedSummary(String(b.placeId), String(b.website))
+        : Promise.resolve(null),
+    ),
+  );
+  const enrichedBusinesses = rawBusinesses.map((b: Record<string, unknown>, i: number) =>
+    i < 3 && cachedSummaries[i]
+      ? { ...b, cachedSummary: cachedSummaries[i] }
+      : b,
+  );
+
   const result = {
-    businesses:  businesses.length ? businesses : initialResults,
+    businesses:  enrichedBusinesses,
     label,
     intentQuery:   layer1Query,     // Layer 1 canonical query (e.g. "plumber")
     aiSummary:     match.aiSummary, // Cerebras one-sentence description of the need
@@ -107,7 +126,7 @@ export const POST: APIRoute = async ({ request }) => {
     urgencyScore:  urgency.score,   // 0–100
   };
 
-  // Cache the combined result when we have businesses to return
+  // Cache the combined result (including pre-fetched summaries) for 4 hours
   if (r && result.businesses.length) {
     await r.set(ck, result, { ex: CACHE_TTL }).catch(() => null);
   }

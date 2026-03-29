@@ -265,7 +265,6 @@ export const POST: APIRoute = async ({ request }) => {
     );
 
     // Schedule a per-business timeout — window is 20/45/90s based on supply
-    const windowSec = getWindowSeconds(allBusinesses.length);
     await Promise.all(
       notifySlice.map((b, i) =>
         smsSentResults[i]

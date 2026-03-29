@@ -117,6 +117,21 @@ export interface WebsiteSummaryInput {
 }
 
 /**
+ * Returns the cached summary for a business without triggering a live fetch.
+ * Used by /api/match to include pre-cached summaries in the initial response
+ * so cards render immediately without a separate /api/summarize round-trip.
+ */
+export async function getCachedSummary(placeId: string, websiteUrl: string): Promise<string | null> {
+  if (!websiteUrl || !placeId) return null;
+  const url = /^https?:\/\//i.test(websiteUrl) ? websiteUrl : `https://${websiteUrl}`;
+  try { new URL(url); } catch { return null; }
+  const r = redis();
+  if (!r) return null;
+  const cacheKey = await buildCacheKey(placeId, url);
+  return r.get<string>(cacheKey).catch(() => null);
+}
+
+/**
  * Returns a 2–3 sentence summary of a business's website.
  *
  * Resolution order:
