@@ -21,33 +21,10 @@
  */
 
 import type { APIRoute } from 'astro';
-import { redis } from '../../lib';
 import { getWebsiteSummary } from '../../lib/website-summary';
-import { json, err } from '../../lib/api-helpers';
+import { json, err, getClientIp, checkRateLimit } from '../../lib/api-helpers';
 
 export const prerender = false;
-
-// ── Rate limiting ─────────────────────────────────────────────────────────────
-
-const RATE_LIMIT      = 10;
-const RATE_WINDOW_SEC = 60;
-const RL_KEY = (ip: string) => `ss:summarize:rl:${ip}`;
-
-async function isAllowed(ip: string): Promise<boolean> {
-  const r = redis();
-  if (!r) return true;
-
-  const key  = RL_KEY(ip);
-  const now  = Date.now();
-  const pipe = r.pipeline();
-  pipe.zremrangebyscore(key, 0, now - RATE_WINDOW_SEC * 1000);
-  pipe.zcard(key);
-  pipe.zadd(key, { score: now, member: String(now) });
-  pipe.expire(key, RATE_WINDOW_SEC);
-  const results = await pipe.exec<[number, number, number, number]>().catch(() => null);
-  if (!results) return true;
-  return (results[1] as number) < RATE_LIMIT;
-}
 
 // ── Endpoint ──────────────────────────────────────────────────────────────────
 
@@ -59,12 +36,9 @@ export const POST: APIRoute = async ({ request }) => {
   const websiteUrl   = String(body.websiteUrl).slice(0, 512);
   const businessName = String(body.businessName || 'Business').slice(0, 120);
 
-  // Simple IP-based rate limit to protect Cerebras + fetch pipeline
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-    || request.headers.get('x-real-ip')
-    || 'unknown';
-
-  const allowed = await isAllowed(ip);
+  // 10 req/min per IP — protects the Cerebras + HTML fetch pipeline
+  const ip      = getClientIp(request);
+  const allowed = await checkRateLimit(`ss:summarize:rl:${ip}`, 10, 60);
   if (!allowed) return err('rate limit exceeded', 429);
 
   const summary = await getWebsiteSummary({ placeId, businessName, websiteUrl });
