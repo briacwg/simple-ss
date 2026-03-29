@@ -9,21 +9,23 @@
 ## Architecture Overview
 
 ```
-Browser
-  │  describe problem + geolocation
-  ▼
-POST /api/match
-  ├─ smartMatch()   →  Cerebras LLM  →  service category + queries (Redis 7d cache)
-  └─ searchPlaces() →  Google Places →  ranked businesses (Redis 4h cache)
-  │
-  ▼  ranked Business[] (up to 6)
-Browser (results cards)
-  │  user taps "Call"
+Browser /                           Browser /business
+  │  describe problem + geolocation   │  passkey sign-in / register
+  ▼                                   ▼
+POST /api/match                     POST /api/business/passkeys/authenticate/*
+  ├─ smartMatch()  → Cerebras LLM     POST /api/business/passkeys/register/*
+  └─ searchPlaces()→ Google Places      └─ returns 24h HMAC session token
+  │                                   ▼
+  ▼  ranked Business[] (up to 6)    Browser /business/dashboard
+Browser (results cards)               ├─ GET /api/dashboard     → 30d metrics
+  │  urgencyTier / diagnosisHint      ├─ GET /api/workspace-settings → form
+  │  aiSummary / Layer 3 summaries    └─ GET /api/business/passkeys/list
+  │  user taps "Call" or "Send request"
   ▼
 POST /api/call                          POST /api/dispatch (supply-adaptive)
-  ├─ resolveCallRef() — HMAC verify       ├─ compute supply level (high/normal/low)
-  ├─ createCallSession() — PIN + token    ├─ notify 1–3 businesses simultaneously
-  └─ returns telHref: tel:BRIDGE,PIN      ├─ index phone → dispatchId in Redis
+  ├─ resolveCallRef() — HMAC verify       ├─ reRankByAcceptance() — training data
+  ├─ createCallSession() — PIN + token    ├─ scoreLeadUrgency() — urgency prefix
+  └─ returns telHref: tel:BRIDGE,PIN      ├─ notify 1–3 businesses simultaneously
   │                                       ├─ QStash 5-min timeout per business
   ▼  user taps tel: link                  └─ QStash review follow-up (24 h)
 Twilio PSTN Bridge  ←→  /api/voice
@@ -152,6 +154,29 @@ POST /api/jobs/review-followup
 2. Returns pre-aggregated 30-day metrics from the `business_dashboard_metrics` cache (refreshed hourly).
 3. On cache miss / stale: live-queries `lead_events` + `dispatch_training_events` from Supabase, upserts fresh metrics.
 4. Metrics include: leads received, calls, dispatches, acceptance rate, avg response time, top service categories.
+
+### Flow 8 — Consumer Dispatch Request (UI)
+
+1. Consumer views ranked business cards on `/` after a search.
+2. The **Send request** button on each card calls `POST /api/dispatch`, passing the primary business `callRef`, all other businesses as `additionalBusinesses`, lat/lng, and service label.
+3. Consumer phone is prompted once and cached in `sessionStorage` for subsequent requests.
+4. On success (`dispatchId` returned) the button transitions to a "Request sent!" confirmed state.
+5. Cards show urgency styling (`.scard--urgent`, `.scard--critical`) based on `urgencyTier` from the match response.
+6. An `aiSummary` bar replaces the plain category heading when Cerebras inference is available.
+7. A `diagnosisHint` callout (red / amber / blue) surfaces the likely issue cause below the results.
+8. Layer 3 async: each card with a website fires `POST /api/summarize` after render — "Loading business info…" placeholders are replaced with the AI summary on resolve.
+
+### Flow 9 — Business Portal
+
+1. Business owner navigates to `/business` — a passkey sign-in / register page.
+2. **Sign in**: triggers a discoverable credential WebAuthn assertion (no username needed), verifies via `/api/business/passkeys/authenticate/finish`, stores the 24h session token in `sessionStorage`.
+3. **Register**: existing session required; generates registration options, creates credential, verifies via `/api/business/passkeys/register/finish`.
+4. On success, owner is redirected to `/business/dashboard`, which:
+   - Silently refreshes the session token via `/api/business/passkeys/refresh`.
+   - Loads 30-day metrics from `/api/dashboard` and renders them in a color-coded metric grid with acceptance-rate bar and top-service-category pills.
+   - Pre-fills the AI Workspace settings form (tone, answer length, banned claims, required phrases, knowledge URLs, starter questions, escalation toggles) from `/api/workspace-settings`.
+   - Lists registered passkeys with friendly names, creation/last-used dates, and per-credential revoke buttons (lock-out guard: last passkey cannot be removed).
+5. All dashboard API calls include `Authorization: Bearer <token>` for session verification.
 
 ---
 
