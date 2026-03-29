@@ -75,7 +75,7 @@ export const POST: APIRoute = async ({ request }) => {
   // ── Route event ──────────────────────────────────────────────────────────
   switch (event.type) {
     case 'checkout.session.completed': {
-      const session = event.data.object as StripeCheckoutSession;
+      const session = event.data.object as unknown as StripeCheckoutSession;
       if (session.mode !== 'subscription') break;
 
       const meta  = session.subscription_data?.metadata ?? {};
@@ -89,7 +89,7 @@ export const POST: APIRoute = async ({ request }) => {
     }
 
     case 'customer.subscription.updated': {
-      const sub   = event.data.object as StripeSubscription;
+      const sub   = event.data.object as unknown as StripeSubscription;
       const meta  = sub.metadata ?? {};
       const phone = meta[PHONE_KEY];
       if (!phone) break;
@@ -104,7 +104,7 @@ export const POST: APIRoute = async ({ request }) => {
     }
 
     case 'customer.subscription.deleted': {
-      const sub   = event.data.object as StripeSubscription;
+      const sub   = event.data.object as unknown as StripeSubscription;
       const phone = sub.metadata?.[PHONE_KEY];
       if (phone) await upsertPlanSlug(sb, phone, 'free');
       break;
@@ -127,8 +127,8 @@ async function upsertPlanSlug(
 ): Promise<void> {
   await sb
     .from('business_workspace_settings')
-    .upsert({ business_phone: businessPhone, plan_slug: planSlug }, { onConflict: 'business_phone' })
-    .catch(() => null);
+    .upsert({ business_phone: businessPhone, plan_slug: planSlug } as never, { onConflict: 'business_phone' })
+    .then(() => null, () => null);
 }
 
 // ── Stripe HMAC-SHA256 signature verification ─────────────────────────────────
@@ -193,6 +193,4 @@ interface StripeSubscription {
   status: string;
   metadata?: Record<string, string>;
 }
-
-// ── Response helpers ──────────────────────────────────────────────────────────
 

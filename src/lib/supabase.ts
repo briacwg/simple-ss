@@ -102,41 +102,57 @@ export interface BusinessDashboardMetrics {
 }
 
 // ── Database type map ─────────────────────────────────────────────────────────
+//
+// @supabase/supabase-js ≥ 2.x requires the full public-schema shape — Tables,
+// Views, Functions, Enums, and CompositeTypes must all be present.  Without the
+// extra keys, the client resolves every Insert/Update type as `never`.
+
+// PostgREST v12 table entry shape (Supabase JS ≥ 2.x requirement)
+interface TableDef<TRow, TInsert, TUpdate> {
+  Row:           TRow;
+  Insert:        TInsert;
+  Update:        TUpdate;
+  Relationships: never[];
+}
 
 export interface Database {
   public: {
     Tables: {
-      dispatch_training_events: {
-        Row:    DispatchTrainingEvent & { id: string; created_at: string };
-        Insert: DispatchTrainingEvent;
-        Update: Partial<DispatchTrainingEvent>;
-      };
-      lead_events: {
-        Row:    LeadEvent & { id: string; created_at: string };
-        Insert: LeadEvent;
-        Update: Partial<LeadEvent>;
-      };
-      user_passkeys: {
-        Row:    UserPasskey & { id: string; created_at: string; updated_at: string };
-        Insert: UserPasskey;
-        Update: Partial<UserPasskey>;
-      };
-      passkey_challenges: {
-        Row:    PasskeyChallenge & { id: string; created_at: string };
-        Insert: PasskeyChallenge;
-        Update: Partial<PasskeyChallenge>;
-      };
-      business_workspace_settings: {
-        Row:    BusinessWorkspaceSettings & { id: string; created_at: string; updated_at: string };
-        Insert: BusinessWorkspaceSettings;
-        Update: Partial<BusinessWorkspaceSettings>;
-      };
-      business_dashboard_metrics: {
-        Row:    BusinessDashboardMetrics;
-        Insert: BusinessDashboardMetrics;
-        Update: Partial<BusinessDashboardMetrics>;
-      };
+      dispatch_training_events: TableDef<
+        DispatchTrainingEvent & { id: string; created_at: string },
+        Omit<DispatchTrainingEvent, 'id' | 'created_at'>,
+        Partial<Omit<DispatchTrainingEvent, 'id' | 'created_at'>>
+      >;
+      lead_events: TableDef<
+        LeadEvent & { id: string; created_at: string },
+        Omit<LeadEvent, 'id' | 'created_at'>,
+        Partial<Omit<LeadEvent, 'id' | 'created_at'>>
+      >;
+      user_passkeys: TableDef<
+        UserPasskey & { id: string; created_at: string; updated_at: string },
+        Omit<UserPasskey, 'id' | 'created_at' | 'updated_at'>,
+        Partial<Omit<UserPasskey, 'id' | 'created_at' | 'updated_at'>>
+      >;
+      passkey_challenges: TableDef<
+        PasskeyChallenge & { id: string; created_at: string },
+        Omit<PasskeyChallenge, 'id' | 'created_at'>,
+        Partial<Omit<PasskeyChallenge, 'id' | 'created_at'>>
+      >;
+      business_workspace_settings: TableDef<
+        BusinessWorkspaceSettings & { id: string; created_at: string; updated_at: string },
+        Omit<BusinessWorkspaceSettings, 'id' | 'created_at' | 'updated_at'>,
+        Partial<Omit<BusinessWorkspaceSettings, 'id' | 'created_at' | 'updated_at'>>
+      >;
+      business_dashboard_metrics: TableDef<
+        BusinessDashboardMetrics,
+        BusinessDashboardMetrics,
+        Partial<BusinessDashboardMetrics>
+      >;
     };
+    Views:          { [_ in never]?: { Row: Record<string, unknown> } };
+    Functions:      { [_ in never]?: { Args: Record<string, unknown>; Returns: unknown } };
+    Enums:          { [_ in never]?: string };
+    CompositeTypes: { [_ in never]?: { [key: string]: unknown } };
   };
 }
 
@@ -177,9 +193,10 @@ export function toLocationCell(lat: number, lng: number): string {
 export async function logTrainingEvent(event: DispatchTrainingEvent): Promise<void> {
   const sb = getSupabase();
   if (!sb) return;
-  await sb.from('dispatch_training_events').insert(event).then(({ error }) => {
-    if (error) console.error('[supabase] logTrainingEvent error', error.message);
-  });
+  // `as never` bypasses PostgREST-v12 Insert type inference until the generated
+  // Database type is refreshed from the Supabase project schema.
+  const { error } = await sb.from('dispatch_training_events').insert(event as never);
+  if (error) console.error('[supabase] logTrainingEvent error', error.message);
 }
 
 /**
@@ -189,7 +206,6 @@ export async function logTrainingEvent(event: DispatchTrainingEvent): Promise<vo
 export async function logLeadEvent(event: LeadEvent): Promise<void> {
   const sb = getSupabase();
   if (!sb) return;
-  await sb.from('lead_events').insert(event).then(({ error }) => {
-    if (error) console.error('[supabase] logLeadEvent error', error.message);
-  });
+  const { error } = await sb.from('lead_events').insert(event as never);
+  if (error) console.error('[supabase] logLeadEvent error', error.message);
 }

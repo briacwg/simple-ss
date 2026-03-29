@@ -77,7 +77,7 @@ export const GET: APIRoute = async ({ url, request }) => {
     };
     const { data: inserted, error: insertError } = await sb
       .from('business_workspace_settings')
-      .insert(defaults)
+      .insert(defaults as never)
       .select()
       .single();
     if (insertError) return err('failed to create settings', 500);
@@ -142,7 +142,7 @@ export const PUT: APIRoute = async ({ request }) => {
 
   const { data, error } = await sb
     .from('business_workspace_settings')
-    .upsert(patch, { onConflict: 'business_phone' })
+    .upsert(patch as never, { onConflict: 'business_phone' })
     .select()
     .single();
 

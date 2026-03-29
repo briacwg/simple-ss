@@ -57,13 +57,13 @@ export const POST: APIRoute = async ({ request }) => {
   const sb = getSupabase();
   let businessPhone: string | null = null;
   if (sb) {
-    const { data } = await sb
+    const result = await sb
       .from('business_workspace_settings')
       .select('business_phone')
       .limit(1)
       .single()
-      .catch(() => ({ data: null }));
-    businessPhone = data?.business_phone ?? null;
+      .then(r => r, () => ({ data: null as null }));
+    businessPhone = (result.data as { business_phone?: string } | null)?.business_phone ?? null;
   }
 
   const siteUrl = import.meta.env.PUBLIC_SITE_URL || 'https://simple.servicesurfer.app';
