@@ -49,6 +49,8 @@ export interface DispatchRecord {
   currentQueueIndex: number;
   /** Supply level computed at dispatch time. */
   supplyLevel: 'high' | 'normal' | 'low';
+  /** Response window per business in seconds (20 / 45 / 90). */
+  windowSeconds: number;
   /** Consumer phone for review follow-up (may be null). */
   consumerPhone: string | null;
   problem: string;
@@ -67,29 +69,49 @@ export interface DispatchRecord {
 export const DK   = (id: string)    => `ss:dispatch:${id}`;
 export const BPDK = (phone: string) => `ss:dispatch:by-phone:${phone}`;
 
-export const DISPATCH_TTL      = 60 * 60 * 48; // 48 hours
-const        PHONE_INDEX_TTL   = 60 * 30;       // 30 min — refreshed as queue advances
-const        TIMEOUT_DELAY_SEC = 60 * 5;        // 5 min per business response window
+export const DISPATCH_TTL    = 60 * 60 * 48; // 48 hours
+const        PHONE_INDEX_TTL = 60 * 30;       // 30 min — refreshed as queue advances
 
 // ── Supply-adaptive window ────────────────────────────────────────────────────
+//
+// Response window and dispatch width scale inversely with local supply:
+//   Low supply  (<5 pros)  → 90s window, notify up to 3 simultaneously
+//   Normal supply (<20)    → 45s window, notify up to 2 simultaneously
+//   High supply (≥20)      → 20s window, notify top 1 (fast market)
+//
+// This matches the main ServiceSurfer platform's getSupplyWindow() spec exactly.
 
 type SupplyLevel = 'high' | 'normal' | 'low';
 
-/** Classifies local supply based on the number of available businesses. */
+/** Classifies local supply level from the total number of available pros. */
 function getSupplyLevel(count: number): SupplyLevel {
-  if (count >= 4) return 'high';
-  if (count >= 2) return 'normal';
+  if (count >= 20) return 'high';
+  if (count >= 5)  return 'normal';
   return 'low';
 }
 
 /**
- * Returns how many businesses to contact simultaneously for a given supply level.
- * High supply → 1 (quality over quantity); low supply → notify all available.
+ * Returns the per-business response window in seconds.
+ *
+ * Mirrors the main app's tiered window spec:
+ *   <5 pros  → 90s  (scarce market — give each pro time to respond)
+ *   <20 pros → 45s  (moderate market)
+ *   ≥20 pros → 20s  (dense market — consumers expect near-instant matching)
+ */
+export function getWindowSeconds(totalPros: number): number {
+  if (totalPros < 5)  return 90;
+  if (totalPros < 20) return 45;
+  return 20;
+}
+
+/**
+ * Returns how many businesses to contact simultaneously based on supply level.
+ * High supply → 1 (quality); low supply → notify all available (breadth).
  */
 function getDispatchWidth(level: SupplyLevel): number {
   if (level === 'high')   return 1;
   if (level === 'normal') return 2;
-  return 3; // low — cast the widest net
+  return 3; // low supply — cast the widest net
 }
 
 // ── Endpoint ──────────────────────────────────────────────────────────────────
@@ -140,6 +162,8 @@ export const POST: APIRoute = async ({ request }) => {
   const dispatchId = `dp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const now        = Date.now();
 
+  const windowSec = getWindowSeconds(allBusinesses.length);
+
   const record: DispatchRecord = {
     dispatchId,
     businessPhone:      primaryPhone,
@@ -147,6 +171,7 @@ export const POST: APIRoute = async ({ request }) => {
     businessQueue,
     currentQueueIndex:  0,
     supplyLevel,
+    windowSeconds:      windowSec,
     consumerPhone,
     problem,
     location,
@@ -183,11 +208,12 @@ export const POST: APIRoute = async ({ request }) => {
       ),
     );
 
-    // Schedule a per-business timeout via QStash (auto-advance if no reply in 5 min)
+    // Schedule a per-business timeout — window is 20/45/90s based on supply
+    const windowSec = getWindowSeconds(allBusinesses.length);
     await Promise.all(
       notifySlice.map((b, i) =>
         smsSentResults[i]
-          ? scheduleDispatchTimeout(dispatchId, b.phone).catch(() => null)
+          ? scheduleDispatchTimeout(dispatchId, b.phone, windowSec).catch(() => null)
           : Promise.resolve(),
       ),
     );
@@ -198,7 +224,7 @@ export const POST: APIRoute = async ({ request }) => {
     await scheduleReviewFollowup(dispatchId).catch(() => null);
   }
 
-  return json({ dispatchId, supplyLevel, notified: notifySlice.length });
+  return json({ dispatchId, supplyLevel, notified: notifySlice.length, windowSeconds: windowSec });
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -236,22 +262,36 @@ async function sendLeadSms(
   return res.ok;
 }
 
-/** Schedules a QStash timeout job to auto-advance the queue if a business doesn't respond. */
-async function scheduleDispatchTimeout(dispatchId: string, businessPhone: string): Promise<void> {
-  const qstashUrl   = import.meta.env.QSTASH_URL;
+/**
+ * Schedules a QStash timeout job that auto-advances the dispatch queue if the
+ * business doesn't reply within the supply-adaptive window (20 / 45 / 90 seconds).
+ *
+ * Uses `Upstash-Forward-Authorization` so QStash forwards the DISPATCH_JOB_SECRET
+ * bearer token to the timeout handler, matching the main app's auth pattern.
+ */
+async function scheduleDispatchTimeout(
+  dispatchId: string,
+  businessPhone: string,
+  windowSeconds: number,
+): Promise<void> {
   const qstashToken = import.meta.env.QSTASH_TOKEN;
   const siteUrl     = import.meta.env.PUBLIC_SITE_URL;
-  if (!qstashUrl || !qstashToken || !siteUrl) return;
+  const jobSecret   = import.meta.env.DISPATCH_JOB_SECRET;
+  if (!qstashToken || !siteUrl) return;
 
-  await fetch(`${qstashUrl}/v2/publish/${encodeURIComponent(`${siteUrl}/api/internal/dispatch-timeout`)}`, {
-    method:  'POST',
-    headers: {
-      Authorization:    `Bearer ${qstashToken}`,
-      'Content-Type':   'application/json',
-      'Upstash-Delay':  `${TIMEOUT_DELAY_SEC}s`,
-    },
-    body: JSON.stringify({ dispatchId, businessPhone }),
-  });
+  const headers: Record<string, string> = {
+    Authorization:   `Bearer ${qstashToken}`,
+    'Content-Type':  'application/json',
+    'Upstash-Delay': `${windowSeconds}s`,
+    'Upstash-Retries': '0',
+  };
+  // Forward job secret so the timeout handler can verify the caller
+  if (jobSecret) headers['Upstash-Forward-Authorization'] = `Bearer ${jobSecret}`;
+
+  await fetch(
+    `https://qstash.upstash.io/v2/publish/${encodeURIComponent(`${siteUrl}/api/internal/dispatch-timeout`)}`,
+    { method: 'POST', headers, body: JSON.stringify({ dispatchId, businessPhone }) },
+  );
 }
 
 /** Schedules a QStash review follow-up job 24 hours from now. */
