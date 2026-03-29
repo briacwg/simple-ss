@@ -70,7 +70,16 @@ QStash (24h after lead)
 POST /api/jobs/review-followup
   ├─ QStash HMAC signature verification
   ├─ load DispatchRecord from Redis
-  └─ Twilio SMS → consumer review request
+  └─ Twilio SMS → consumer review request (link includes dispatchId)
+
+Consumer taps review link
+  ▼
+POST /api/review
+  ├─ validate dispatchId + rating (1–5) + optional comment
+  ├─ idempotency guard (one review per dispatch — 409 on re-submit)
+  ├─ status guard (only accepted / review_sent dispatches accepted)
+  ├─ update DispatchRecord → status: review_received (preserves Redis TTL)
+  └─ log review_received event to Supabase lead_events
 ```
 
 ---
@@ -176,6 +185,16 @@ POST /api/jobs/review-followup
 4. `POST /api/stripe/webhook` receives `checkout.session.completed` → upserts `plan_slug` in `business_workspace_settings`.
 5. Subsequent `customer.subscription.updated` / `customer.subscription.deleted` events keep the plan in sync.
 6. Webhook signature is verified via HMAC-SHA256 against `STRIPE_WEBHOOK_SECRET` (Stripe timestamp-prefixed payload).
+
+### Flow 11 — Consumer Review Submission
+
+1. 24 hours after a business accepts a lead, QStash fires `/api/jobs/review-followup`.
+2. The job loads the dispatch record from Redis and sends a review-request SMS to the consumer with a link containing the `dispatchId`.
+3. Consumer taps the link and submits a star rating (1–5) + optional comment via `POST /api/review`.
+4. The server validates the dispatch ID, enforces a one-review-per-dispatch idempotency guard (409 on duplicate), and checks that the dispatch is in an `accepted` or `review_sent` state.
+5. On success, the dispatch record status is updated to `review_received` (preserving the original Redis TTL) and a `review_received` event is written to `lead_events` in Supabase for dashboard aggregation.
+
+---
 
 ### Flow 9 — Business Portal
 
@@ -328,6 +347,34 @@ QStash webhook — sent automatically 24 hours after a dispatch. Sends a review-
 ```json
 { "dispatchId": "dp_1711234567890_abc123" }
 ```
+
+---
+
+### `POST /api/review`
+Consumer review submission — stores a star rating and optional comment for a completed dispatch. Linked from the review-request SMS sent by `/api/jobs/review-followup`.
+
+**Request body**
+```json
+{
+  "dispatchId": "dp_1711234567890_abc123",
+  "rating": 5,
+  "comment": "Technician arrived in 20 minutes, very professional."
+}
+```
+
+**Response**
+```json
+{ "ok": true, "rating": 5, "dispatchId": "dp_1711234567890_abc123" }
+```
+
+| Status | Condition |
+|---|---|
+| `200` | Review accepted |
+| `400` | Missing `dispatchId`, or `rating` not in `[1, 5]` |
+| `404` | Dispatch not found or expired (48h TTL) |
+| `409` | Review already submitted for this dispatch |
+| `422` | Dispatch not in `accepted` or `review_sent` state |
+| `503` | Redis unavailable |
 
 ---
 
@@ -509,6 +556,37 @@ Initiate a business ownership claim.
 
 ---
 
+### `POST /api/claim/verify`
+Step 2 of the business ownership claim flow — verify the 6-digit OTP sent by `/api/claim`.
+
+**Request body**
+```json
+{ "claimId": "cl_1711234567890_xyz789", "code": "482910" }
+```
+
+**Response**
+```json
+{
+  "verified": true,
+  "claimId": "cl_1711234567890_xyz789",
+  "businessName": "ABC HVAC",
+  "placeId": "ChIJ...",
+  "ownerPhone": "+13125550199"
+}
+```
+
+| Status | Condition |
+|---|---|
+| `200` | OTP verified; redirect owner to onboarding |
+| `400` | Missing fields, or code is not exactly 6 digits, or code mismatch |
+| `404` | Claim not found or expired (15-minute TTL) |
+| `409` | Claim already verified |
+| `410` | Verification code expired — owner must request a new one |
+
+Code comparison uses constant-time equality to prevent timing-oracle attacks on the OTP.
+
+---
+
 ### `GET /api/get-location`
 Geolocate the requesting IP or reverse-geocode coordinates.
 
@@ -539,7 +617,22 @@ Health check — verifies Redis connectivity and required env vars.
 
 **Response (healthy)**
 ```json
-{ "ok": true, "redis": true, "checks": { "GROQ_API_KEY": true, "GOOGLE_PLACES_API_KEY": true, "TWILIO_ACCOUNT_SID": true } }
+{
+  "ok": true,
+  "redis": true,
+  "supabase": true,
+  "checks": {
+    "CALL_REF_SECRET": true,
+    "CEREBRAS_API_KEY": true,
+    "GOOGLE_PLACES_API_KEY": true,
+    "TWILIO_ACCOUNT_SID": true
+  },
+  "optional": {
+    "SUPABASE_URL": true,
+    "STRIPE_SECRET_KEY": true,
+    "QSTASH_URL": true
+  }
+}
 ```
 
 ---
@@ -646,7 +739,7 @@ vercel deploy
 | Combined match result | `ss:match:v1:{query}:{lat10}:{lng10}` | 4 hours |
 | Call session (by token) | `ss:public-call:token:{token}` | 15 minutes |
 | Call session (by PIN) | `ss:public-call:pin:{pin}` | 15 minutes |
-| Dispatch record | `ss:dispatch:{id}` | 48 hours |
+| Dispatch record (+ embedded review) | `ss:dispatch:{id}` | 48 hours |
 | Business phone → dispatch ID | `ss:dispatch:by-phone:{phone}` | 30 minutes |
 | Pending claim | `ss:claim:{id}` | 15 minutes |
 | Claim dedup lock | `ss:claim:lock:{placeId}:{phone}` | 15 minutes |
@@ -677,3 +770,4 @@ Redis keys are **intentionally compatible** with the main ServiceSurfer platform
 - **Dispatch training events log every outcome** (accepted / declined / timeout) with supply level, queue position, and response time for AI model training.
 - **Stripe webhook payloads are HMAC-SHA256 verified** against the timestamp-prefixed body (Stripe's `t=<ts>.body` signing scheme) before any plan_slug mutation occurs.
 - **QStash publish/verify logic is centralised in `lib/qstash.ts`** — `scheduleDispatchTimeout()` and `scheduleReviewFollowup()` use deduplication IDs to prevent double-scheduling on handler retries.
+- **Consumer reviews are idempotent and state-gated.** `/api/review` enforces a one-review-per-dispatch guard (409 on duplicate) and only accepts submissions for dispatches in `accepted` or `review_sent` state — preventing reviews on expired or unaccepted leads. Redis TTL is preserved via `r.ttl()` rather than a stale derived timestamp.
