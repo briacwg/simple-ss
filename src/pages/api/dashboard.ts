@@ -62,7 +62,24 @@ export const GET: APIRoute = async ({ url, request }) => {
     }
   }
 
-  // 2. Compute fresh metrics from lead_events
+  // 2. Compute fresh metrics via the Supabase stored function (single round-trip).
+  // Falls back to JavaScript aggregation if the RPC is unavailable.
+  const rpcResult = await sb.rpc('refresh_dashboard_metrics', { p_phone: phone }).catch(() => null);
+
+  if (rpcResult && !rpcResult.error) {
+    // RPC upserted the metrics row — re-fetch and return.
+    const { data: fresh } = await sb
+      .from('business_dashboard_metrics')
+      .select('*')
+      .eq('business_phone', phone)
+      .single()
+      .catch(() => ({ data: null }));
+    if (fresh) {
+      return json({ ...fresh, acceptance_rate: computeRate(fresh), cached: false });
+    }
+  }
+
+  // Fallback: JS aggregation from lead_events + dispatch_training_events
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
   const [eventsResult, trainingResult] = await Promise.all([
@@ -110,9 +127,9 @@ export const GET: APIRoute = async ({ url, request }) => {
 
   const metrics = {
     business_phone:     phone,
-    leads_30d:          counts['dispatch_sent']    ?? 0,
-    calls_30d:          counts['call_initiated']   ?? 0,
-    dispatches_30d:     counts['dispatch_sent']    ?? 0,
+    leads_30d:          counts['dispatch_sent']     ?? 0,
+    calls_30d:          counts['call_initiated']    ?? 0,
+    dispatches_30d:     counts['dispatch_sent']     ?? 0,
     accepted_30d:       counts['dispatch_accepted'] ?? 0,
     declined_30d:       counts['dispatch_declined'] ?? 0,
     timeout_30d:        counts['dispatch_timeout']  ?? 0,
