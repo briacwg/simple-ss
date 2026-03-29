@@ -323,6 +323,23 @@ export async function smartMatch(description: string, budget = '', urgency = '')
 
 // ── Google Places ─────────────────────────────────────────────────────────────
 
+/**
+ * Subset of the Google Places API (New) response shape we actually consume.
+ * Typed to eliminate `any` casts in the Places fetch handler below.
+ */
+interface PlaceResult {
+  id: string;
+  displayName?: { text?: string };
+  formattedAddress?: string;
+  rating?: number;
+  userRatingCount?: number;
+  nationalPhoneNumber?: string;
+  websiteUri?: string;
+  currentOpeningHours?: { openNow?: boolean };
+  location?: { latitude: number; longitude: number };
+  businessStatus?: string;
+}
+
 /** A business listing returned by the Places search. */
 export interface Business {
   /** Google Places place ID. */
@@ -405,23 +422,25 @@ export async function searchPlaces(query: string, lat: number, lng: number): Pro
   const data = await res.json();
 
   const results: Business[] = await Promise.all(
-    ((data.places || []) as any[])
-      .filter((p: any) => p.businessStatus === 'OPERATIONAL')
+    ((data.places || []) as PlaceResult[])
+      .filter(p => p.businessStatus === 'OPERATIONAL')
       .slice(0, 6)
-      .map(async (p: any) => {
+      .map(async (p: PlaceResult) => {
         const phone = p.nationalPhoneNumber || null;
         return {
           placeId:     p.id,
-          name:        p.displayName?.text || '',
-          address:     p.formattedAddress || '',
-          rating:      p.rating ?? null,
-          reviewCount: p.userRatingCount ?? 0,
+          name:        p.displayName?.text ?? '',
+          address:     p.formattedAddress  ?? '',
+          rating:      p.rating            ?? null,
+          reviewCount: p.userRatingCount   ?? 0,
           phone,
           // Sign the phone number so it's safe to embed in client HTML
           callRef:     phone ? await makeCallRef(phone) : null,
-          website:     p.websiteUri || null,
+          website:     p.websiteUri ?? null,
           openNow:     p.currentOpeningHours?.openNow ?? null,
-          distance:    p.location ? haversine(lat, lng, p.location.latitude, p.location.longitude) + ' mi' : null,
+          distance:    p.location
+            ? haversine(lat, lng, p.location.latitude, p.location.longitude) + ' mi'
+            : null,
         };
       }),
   );
