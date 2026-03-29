@@ -32,6 +32,7 @@
 
 import type { APIRoute } from 'astro';
 import { getSupabase } from '../../../lib/supabase';
+import { redis } from '../../../lib';
 import { json, err } from '../../../lib/api-helpers';
 
 export const prerender = false;
@@ -67,6 +68,20 @@ export const POST: APIRoute = async ({ request }) => {
     event = JSON.parse(rawBody) as StripeEvent;
   } catch {
     return err('invalid JSON', 400);
+  }
+
+  // ── Idempotency guard — deduplicate replayed events via Redis ─────────────
+  // Stripe may deliver the same event more than once (at-least-once delivery).
+  // We store each processed event.id in Redis with a 24 h TTL so that replays
+  // within that window are acknowledged but not re-applied to the database.
+  const r = redis();
+  if (r && event.id) {
+    const dedupKey = `ss:stripe:event:${event.id}`;
+    const already  = await r.set(dedupKey, '1', { nx: true, ex: 60 * 60 * 24 }).catch(() => null);
+    if (already === null) {
+      // Key already existed — this event was already processed
+      return json({ received: true, deduplicated: true });
+    }
   }
 
   const sb = getSupabase();
@@ -180,6 +195,7 @@ async function verifyStripeSignature(
 // ── Minimal Stripe event types ────────────────────────────────────────────────
 
 interface StripeEvent {
+  id:   string;
   type: string;
   data: { object: Record<string, unknown> };
 }
