@@ -31,7 +31,7 @@ import { reRankByAcceptance } from '../../lib/smart-rank';
 import { scoreLeadUrgency, urgencySmsPrefix } from '../../lib/lead-score';
 import { scheduleDispatchTimeout as qScheduleTimeout, scheduleReviewFollowup as qScheduleReview } from '../../lib/qstash';
 import { sendLeadSms as twilioSendLeadSms } from '../../lib/twilio';
-import { json, err } from '../../lib/api-helpers';
+import { json, err, getClientIp, checkRateLimit } from '../../lib/api-helpers';
 
 export const prerender = false;
 
@@ -139,6 +139,12 @@ function getDispatchWidth(level: SupplyLevel): number {
 // ── Endpoint ──────────────────────────────────────────────────────────────────
 
 export const POST: APIRoute = async ({ request }) => {
+  // IP-based rate limit: 20 dispatches/min — prevents abuse while allowing
+  // power users to dispatch multiple leads in quick succession.
+  const ip      = getClientIp(request);
+  const allowed = await checkRateLimit(`ss:dispatch:rl:${ip}`, 20, 60);
+  if (!allowed) return err('rate limit exceeded', 429);
+
   const body = await request.json().catch(() => null);
   if (!body?.callRef) return err('callRef required', 400);
 
