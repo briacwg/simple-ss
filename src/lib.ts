@@ -156,9 +156,12 @@ export async function createCallSession(
   const token = crypto.randomUUID().replace(/-/g, '');
   let pin = '';
 
-  // Try up to 12 random PINs — collision probability is negligible in practice
+  // Try up to 12 random PINs using cryptographically secure random values.
+  // Math.random() is explicitly avoided — it is not suitable for session tokens.
   for (let i = 0; i < 12; i++) {
-    const p = String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0');
+    const buf = new Uint32Array(1);
+    crypto.getRandomValues(buf);
+    const p = String(buf[0]! % 1_000_000).padStart(6, '0');
     if (await r.get(PK(p))) continue;
     await r.set(PK(p), token, { ex: TTL });
     pin = p;

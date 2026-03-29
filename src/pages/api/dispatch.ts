@@ -209,7 +209,7 @@ export const POST: APIRoute = async ({ request }) => {
     : null;
 
   const allBusinesses = await Promise.race([
-    reRankByAcceptance(rawBusinesses, serviceLabel, locationCell),
+    reRankByAcceptance(rawBusinesses, serviceLabel, locationCell, urgency.tier),
     new Promise<typeof rawBusinesses>(resolve => setTimeout(() => resolve(rawBusinesses), 1000)),
   ]);
 

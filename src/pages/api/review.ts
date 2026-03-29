@@ -86,14 +86,16 @@ export const POST: APIRoute = async ({ request }) => {
     .set(DK(dispatchId), JSON.stringify(updated), { ex })
     .catch(() => null);
 
-  // Log to Supabase for dashboard aggregation
+  // Log to Supabase for dashboard aggregation.
+  // service_label and location_cell are included so the review feeds into the
+  // smart-rank review quality signal for the correct service+location bucket.
   await logLeadEvent({
     dispatch_id:    dispatchId,
     business_phone: record.businessPhone,
     event_type:     'review_received',
-    service_label:  null,
-    location_cell:  null,
-    consumer_phone: null,
+    service_label:  record.serviceLabel ?? null,
+    location_cell:  record.locationCell ?? null,
+    consumer_phone: record.consumerPhone ?? null,
     meta:           { rating, comment, businessName: record.businessName },
   }).catch(() => null);
 

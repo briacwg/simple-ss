@@ -23,7 +23,7 @@
  */
 
 import type { APIRoute } from 'astro';
-import { smartMatch, searchPlaces, redis } from '../../lib';
+import { smartMatch, searchPlaces, redis, type Business } from '../../lib';
 import { inferServiceIntentHint, inferDiagnosisHint } from '../../lib/intent';
 import { scoreLeadUrgency } from '../../lib/lead-score';
 import { getCachedSummary } from '../../lib/website-summary';
@@ -104,13 +104,13 @@ export const POST: APIRoute = async ({ request }) => {
   // client can render "Why this business" instantly without a separate fetch.
   const top3 = rawBusinesses.slice(0, 3);
   const cachedSummaries = await Promise.all(
-    top3.map((b: Record<string, unknown>) =>
+    top3.map((b: Business) =>
       b.placeId && b.website
-        ? getCachedSummary(String(b.placeId), String(b.website))
+        ? getCachedSummary(b.placeId, b.website)
         : Promise.resolve(null),
     ),
   );
-  const enrichedBusinesses = rawBusinesses.map((b: Record<string, unknown>, i: number) =>
+  const enrichedBusinesses = rawBusinesses.map((b: Business, i: number) =>
     i < 3 && cachedSummaries[i]
       ? { ...b, cachedSummary: cachedSummaries[i] }
       : b,

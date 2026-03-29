@@ -5,7 +5,7 @@
  * and response-time measurement is fed back here to improve queue ordering
  * for future similar leads.
  *
- * Ranking algorithm (v4)
+ * Ranking algorithm (v5)
  * ──────────────────────
  * Five signals are blended for each candidate:
  *
@@ -54,8 +54,21 @@
  * 5. Google Places rank signal  [0.0 → 0.3 contribution]
  *    Preserves the Places ranking as a tie-breaker when training data is sparse.
  *
+ * 6. Urgency-tier acceptance multiplier  [0.90 → 1.10]
+ *    When the current lead has a known urgency tier (critical/high/medium/low),
+ *    computes this business's Wilson-score acceptance rate restricted to leads
+ *    of the same urgency tier.  Businesses that historically respond well to
+ *    URGENT or EMERGENCY leads are boosted when today's lead is urgent; those
+ *    that only accept low-urgency leads are modestly penalised.
+ *    Requires ≥ 3 same-urgency events; neutral (1.0) otherwise.
+ *
+ *      urgencyRate      = wilsonLower(accepted, total)  for this urgency tier
+ *      urgencyAdj       = (urgencyRate − 0.5) × 0.20   ∈ [−0.10, +0.10]
+ *      urgencyMultiplier = 1.0 + urgencyAdj
+ *
  *      final = acceptMultiplier × reviewMultiplier
  *              × temporalMultiplier × responseMultiplier
+ *              × urgencyMultiplier
  *              × (0.7 + 0.3 / (googleRank + 1))
  *
  * Performance
@@ -97,6 +110,7 @@ interface ResponseStats {
 
 // Row shapes for untyped Supabase tables
 interface TrainingRow {
+  dispatch_id:   string;
   business_phone: string;
   outcome:        string;
   service_label:  string | null;
@@ -107,6 +121,10 @@ interface TrainingRow {
 interface ReviewRow {
   business_phone: string;
   meta:           { rating?: number } | null;
+}
+interface UrgencyEventRow {
+  dispatch_id: string;
+  meta:        { urgencyTier?: string } | null;
 }
 
 // ── Wilson score lower confidence bound ──────────────────────────────────────
@@ -144,9 +162,9 @@ function hourBucket(date: Date): number {
 }
 
 /** Cache key includes the current 3-hour window so stale temporal data expires. */
-const cacheKey = (phones: string[], label: string | null, cell: string | null) => {
+const cacheKey = (phones: string[], label: string | null, cell: string | null, urgency: string | null) => {
   const bucket = hourBucket(new Date());
-  return `ss:smart-rank:v4:b${bucket}:${label ?? '_'}:${cell ?? '_'}:${phones.slice().sort().join(',')}`;
+  return `ss:smart-rank:v5:b${bucket}:${urgency ?? '_'}:${label ?? '_'}:${cell ?? '_'}:${phones.slice().sort().join(',')}`;
 };
 
 // ── Cache TTL — 3 min so temporal signal stays fresh within the hour bucket ──
@@ -156,19 +174,23 @@ const CACHE_TTL = 60 * 3;
 
 /**
  * Returns the candidate list re-ordered by the composite score:
- * acceptance rate × review quality × temporal fit × response speed × places rank.
+ * acceptance rate × review quality × temporal fit × response speed ×
+ * urgency-tier fit × places rank.
  *
  * Falls back to the original order on any error.
  *
- * @param candidates  Ordered list of businesses (Google Places rank, best-first).
+ * @param candidates    Ordered list of businesses (Google Places rank, best-first).
  * @param serviceLabel  Service category label from the smart-match result.
  * @param locationCell  0.1° grid cell string, e.g. "418:-876".
+ * @param urgencyTier   Current lead's urgency tier: 'critical'|'high'|'medium'|'low'|null.
+ *                      When provided, adds a 6th signal based on per-tier acceptance history.
  * @returns Re-ordered candidate list with best-predicted acceptors first.
  */
 export async function reRankByAcceptance(
   candidates:    RankablesBusiness[],
   serviceLabel:  string | null,
   locationCell:  string | null,
+  urgencyTier:   string | null = null,
 ): Promise<RankablesBusiness[]> {
   if (candidates.length <= 1) return candidates;
 
@@ -176,7 +198,7 @@ export async function reRankByAcceptance(
 
   // Check Redis cache first
   const r   = redis();
-  const key = cacheKey(phones, serviceLabel, locationCell);
+  const key = cacheKey(phones, serviceLabel, locationCell, urgencyTier);
   if (r) {
     const cached = await r.get<string>(key).catch(() => null);
     if (cached) {
@@ -193,12 +215,13 @@ export async function reRankByAcceptance(
   const sb = getSupabase();
   if (!sb) return candidates;
 
-  // Fetch training events and review scores in parallel with a 1.5 s deadline each.
+  // Fetch training events, review scores, and urgency events in parallel.
+  // Each query has a 1.5 s deadline; the whole Promise.all resolves in max ~1.5 s.
   const trainingPromise = Promise.race([
     Promise.resolve(
       sb
         .from('dispatch_training_events')
-        .select('business_phone, outcome, service_label, location_cell, response_ms, created_at')
+        .select('dispatch_id, business_phone, outcome, service_label, location_cell, response_ms, created_at')
         .in('business_phone', phones)
         .limit(500),
     ),
@@ -217,18 +240,51 @@ export async function reRankByAcceptance(
     new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500)),
   ]).catch(() => ({ data: null as null, error: null }));
 
-  const [trainingResult, reviewResult] = await Promise.all([trainingPromise, reviewPromise]);
+  // 3rd parallel query: urgency-tier acceptance data.
+  // Fetches dispatch_sent lead events for these business phones to map
+  // dispatch_id → urgency tier.  Only fired when urgencyTier is non-null so
+  // the extra round-trip is skipped for callers that don't supply urgency context.
+  const urgencyPromise: Promise<{ data: UrgencyEventRow[] | null }> = urgencyTier
+    ? Promise.race([
+        Promise.resolve(
+          sb
+            .from('lead_events')
+            .select('dispatch_id, meta')
+            .in('business_phone', phones)
+            .eq('event_type', 'dispatch_sent')
+            .limit(500),
+        ),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500)),
+      ]).catch(() => ({ data: null as null }))
+    : Promise.resolve({ data: null as null });
+
+  const [trainingResult, reviewResult, urgencyResult] = await Promise.all([
+    trainingPromise, reviewPromise, urgencyPromise,
+  ]);
 
   if (trainingResult.error || !trainingResult.data) return candidates;
-  const data       = trainingResult.data as unknown as TrainingRow[];
-  const reviewData = (reviewResult.data ?? []) as unknown as ReviewRow[];
+  const data         = trainingResult.data as unknown as TrainingRow[];
+  const reviewData   = (reviewResult.data ?? []) as unknown as ReviewRow[];
+  const urgencyData  = (urgencyResult.data ?? []) as unknown as UrgencyEventRow[];
+
+  // ── Build dispatch_id → urgency tier map ─────────────────────────────────────
+  // Maps each dispatch to its urgency tier so we can filter training rows
+  // by urgency tier when computing signal 6.
+  const dispatchUrgencyMap = new Map<string, string>();
+  for (const ev of urgencyData) {
+    const tier = ev.meta?.urgencyTier;
+    if (tier && ev.dispatch_id && !dispatchUrgencyMap.has(ev.dispatch_id)) {
+      dispatchUrgencyMap.set(ev.dispatch_id, tier);
+    }
+  }
 
   // ── Aggregate stats ─────────────────────────────────────────────────────────
 
   const specificStats  = new Map<string, AcceptanceStats>();
   const generalStats   = new Map<string, AcceptanceStats>();
-  const temporalStats  = new Map<string, AcceptanceStats>(); // key: `phone:bucket`
+  const temporalStats  = new Map<string, AcceptanceStats>();
   const responseStats  = new Map<string, ResponseStats>();
+  const urgencyStats   = new Map<string, AcceptanceStats>(); // signal 6: per urgency-tier
 
   const incr = (map: Map<string, AcceptanceStats>, key: string, isAccepted: boolean) => {
     const prev = map.get(key) ?? { total: 0, accepted: 0 };
@@ -261,6 +317,14 @@ export async function reRankByAcceptance(
         totalMs: prev.totalMs + row.response_ms,
         count:   prev.count + 1,
       });
+    }
+
+    // 6: urgency-tier acceptance — only accumulate when tier matches the current lead
+    if (urgencyTier && row.dispatch_id) {
+      const tier = dispatchUrgencyMap.get(row.dispatch_id);
+      if (tier === urgencyTier) {
+        incr(urgencyStats, row.business_phone, isAccepted);
+      }
     }
   }
 
@@ -323,10 +387,18 @@ export async function reRankByAcceptance(
     // 5. Google Places rank signal — tie-breaker when training data is sparse
     const placesSignal = 1 / (googleRank + 1);
 
+    // 6. Urgency-tier acceptance multiplier [0.90, 1.10] — requires ≥ 3 same-urgency events
+    //    Boosts businesses that reliably respond to leads of this urgency level.
+    const urgencyStat = urgencyTier ? urgencyStats.get(b.phone) : undefined;
+    const urgencyMultiplier = urgencyStat && urgencyStat.total >= 3
+      ? 1.0 + (wilsonLower(urgencyStat.accepted, urgencyStat.total) - 0.5) * 0.20
+      : 1.0;
+
     const score = acceptMultiplier
       * reviewMultiplier
       * temporalMultiplier
       * responseMultiplier
+      * urgencyMultiplier
       * (0.7 + 0.3 * placesSignal);
 
     return { business: b, score };

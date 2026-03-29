@@ -118,13 +118,14 @@ POST /api/review
 ### Flow 2 — Supply-Adaptive Dispatch Loop
 
 1. `POST /api/dispatch` receives the consumer request + ranked business list.
-2. **`reRankByAcceptance()` (v4)** re-orders candidates using five signals (acceptance rates use Wilson score lower confidence bounds to prevent overconfidence on sparse data):
-   - **Acceptance-rate multiplier** `[0.6→1.4]` — precision-weighted blend of specific (same service + location cell) and general acceptance rates fetched from `dispatch_training_events`.
+2. **`reRankByAcceptance()` (v5)** re-orders candidates using six signals (all acceptance rates use Wilson score lower confidence bounds to handle sparse data correctly):
+   - **Acceptance-rate multiplier** `[0.6→1.4]` — precision-weighted Wilson-score blend of specific (same service + location cell) and general acceptance rates from `dispatch_training_events`.
    - **Review quality multiplier** `[0.85→1.15]` — average star rating from `lead_events`, applied once ≥ 3 reviews exist.
-   - **Temporal multiplier** `[0.90→1.10]` — acceptance rate in the current 3-hour UTC bucket vs overall; boosts businesses active right now.
-   - **Response-time multiplier** `[0.95→1.05]` — normalised average accepted `response_ms` (faster = higher); predicts dispatch-window compliance.
+   - **Temporal multiplier** `[0.90→1.10]` — Wilson-score acceptance rate in the current 3-hour UTC bucket; boosts businesses active right now.
+   - **Response-time multiplier** `[0.95→1.05]` — normalised average accepted `response_ms`; faster responders are less likely to expire their dispatch window.
+   - **Urgency-tier multiplier** `[0.90→1.10]` — Wilson-score acceptance rate restricted to dispatches of the same urgency tier (critical/high/medium/low). Businesses that reliably respond to URGENT leads rank higher when today's lead is urgent.
    - **Google Places rank signal** `[0.0→0.3 contribution]` — preserves the original Places ranking as a tie-breaker when training data is sparse.
-   - The four Supabase queries run in parallel with a 1.5 s timeout each; falls back to the original Google Places order if Supabase is unavailable.
+   - All three Supabase queries run in parallel with 1.5 s timeouts each; falls back to the original Google Places order if Supabase is unavailable.
 3. **Supply level** is computed from the number of available businesses:
    - `high` (≥20 pros): notify top 1 only — dense market, quality over quantity
    - `normal` (5–19 pros): notify top 2 simultaneously

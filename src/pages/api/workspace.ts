@@ -22,6 +22,12 @@ import { redis, normalizePhone } from '../../lib';
 import { getSupabase } from '../../lib/supabase';
 import { json, err } from '../../lib/api-helpers';
 
+// Settings cache TTL — 5 minutes.  Short enough that plan upgrades and setting
+// changes are reflected quickly; long enough to absorb repeated AI questions
+// from the same business session without hammering Supabase.
+const SETTINGS_CACHE_TTL = 60 * 5;
+const SETTINGS_CACHE_KEY = (phone: string) => `ss:workspace:settings:v1:${phone}`;
+
 export const prerender = false;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -216,6 +222,14 @@ interface CachedSettings {
 }
 
 async function loadSettings(phone: string): Promise<CachedSettings | null> {
+  // 1. Redis cache check — avoids a Supabase round-trip for most requests.
+  const r = redis();
+  if (r) {
+    const cached = await r.get<CachedSettings>(SETTINGS_CACHE_KEY(phone)).catch(() => null);
+    if (cached) return cached;
+  }
+
+  // 2. Supabase fallback
   const sb = getSupabase();
   if (!sb) return null;
   type SettingsRow = { tone: string; answer_length: string; banned_claims: string[]; required_phrases: string[]; plan_slug: string };
@@ -224,15 +238,23 @@ async function loadSettings(phone: string): Promise<CachedSettings | null> {
     .select('tone, answer_length, banned_claims, required_phrases, plan_slug')
     .eq('business_phone', phone)
     .single()
-    .then(r => r, () => ({ data: null })) as { data: SettingsRow | null };
+    .then(res => res, () => ({ data: null })) as { data: SettingsRow | null };
   if (!data) return null;
-  return {
+
+  const settings: CachedSettings = {
     tone:            (data.tone as WorkspaceTone) || 'friendly',
     answerLength:    (data.answer_length as WorkspaceAnswerLength) || 'balanced',
     bannedClaims:    data.banned_claims || [],
     requiredPhrases: data.required_phrases || [],
     planSlug:        (data.plan_slug as WorkspacePlanSlug) || 'free',
   };
+
+  // Populate cache so subsequent requests in the same session avoid Supabase.
+  if (r) {
+    await r.set(SETTINGS_CACHE_KEY(phone), settings, { ex: SETTINGS_CACHE_TTL }).catch(() => null);
+  }
+
+  return settings;
 }
 
 // ── Fallback responses ────────────────────────────────────────────────────────

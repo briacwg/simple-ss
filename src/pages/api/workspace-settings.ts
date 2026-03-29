@@ -18,10 +18,13 @@
  */
 
 import type { APIRoute } from 'astro';
-import { normalizePhone } from '../../lib';
+import { normalizePhone, redis } from '../../lib';
 import { getSupabase, type BusinessWorkspaceSettings } from '../../lib/supabase';
 import { getBusinessSession } from '../../lib/session';
 import { json, err } from '../../lib/api-helpers';
+
+// Keep in sync with workspace.ts SETTINGS_CACHE_KEY
+const SETTINGS_CACHE_KEY = (phone: string) => `ss:workspace:settings:v1:${phone}`;
 
 export const prerender = false;
 
@@ -147,6 +150,12 @@ export const PUT: APIRoute = async ({ request }) => {
     .single();
 
   if (error) return err('failed to save settings', 500);
+
+  // Invalidate the workspace settings cache so the next AI request picks up
+  // the new settings without waiting for the 5-minute TTL to expire.
+  const r = redis();
+  if (r) await r.del(SETTINGS_CACHE_KEY(phone)).catch(() => null);
+
   return json(data);
 };
 
