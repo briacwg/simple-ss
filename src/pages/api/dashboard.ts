@@ -22,7 +22,7 @@
 
 import type { APIRoute } from 'astro';
 import { normalizePhone } from '../../lib';
-import { getSupabase } from '../../lib/supabase';
+import { getSupabase, type BusinessDashboardMetrics } from '../../lib/supabase';
 import { getBusinessSession } from '../../lib/session';
 import { json, err } from '../../lib/api-helpers';
 
@@ -49,12 +49,13 @@ export const GET: APIRoute = async ({ url, request }) => {
   if (!sb) return err('database unavailable', 503);
 
   // 1. Check metrics cache
-  const { data: cached } = await sb
+  const cacheResult = await sb
     .from('business_dashboard_metrics')
     .select('*')
     .eq('business_phone', phone)
     .single()
-    .catch(() => ({ data: null }));
+    .then(r => r, () => ({ data: null, error: null }));
+  const cached = (cacheResult.data ?? null) as BusinessDashboardMetrics | null;
 
   if (cached) {
     const age = Date.now() - new Date(cached.updated_at).getTime();
@@ -65,16 +66,20 @@ export const GET: APIRoute = async ({ url, request }) => {
 
   // 2. Compute fresh metrics via the Supabase stored function (single round-trip).
   // Falls back to JavaScript aggregation if the RPC is unavailable.
-  const rpcResult = await sb.rpc('refresh_dashboard_metrics', { p_phone: phone }).catch(() => null);
+  const rpcResult = await Promise.resolve(
+    (sb as unknown as { rpc: (fn: string, args?: Record<string, unknown>) => PromiseLike<{ error: unknown }> })
+      .rpc('refresh_dashboard_metrics', { p_phone: phone })
+  ).then(r => r, () => null);
 
   if (rpcResult && !rpcResult.error) {
     // RPC upserted the metrics row — re-fetch and return.
-    const { data: fresh } = await sb
+    const freshResult = await sb
       .from('business_dashboard_metrics')
       .select('*')
       .eq('business_phone', phone)
       .single()
-      .catch(() => ({ data: null }));
+      .then(r => r, () => ({ data: null, error: null }));
+    const fresh = (freshResult.data ?? null) as BusinessDashboardMetrics | null;
     if (fresh) {
       return json({ ...fresh, acceptance_rate: computeRate(fresh), cached: false });
     }
@@ -99,8 +104,11 @@ export const GET: APIRoute = async ({ url, request }) => {
       .limit(1000),
   ]);
 
-  const events   = eventsResult.data   ?? [];
-  const training = trainingResult.data ?? [];
+  type EventRow    = { event_type: string; service_label: string | null; created_at: string };
+  type TrainingRow = { outcome: string; response_ms: number | null; service_label: string | null };
+
+  const events   = (eventsResult.data   ?? []) as unknown as EventRow[];
+  const training = (trainingResult.data ?? []) as unknown as TrainingRow[];
 
   // Aggregate event counts
   const counts: Record<string, number> = {};
@@ -142,8 +150,8 @@ export const GET: APIRoute = async ({ url, request }) => {
   // Upsert the cache
   await sb
     .from('business_dashboard_metrics')
-    .upsert(metrics, { onConflict: 'business_phone' })
-    .catch(() => null);
+    .upsert(metrics as never, { onConflict: 'business_phone' })
+    .then(() => null, () => null);
 
   return json({ ...metrics, acceptance_rate: computeRate(metrics), cached: false });
 };

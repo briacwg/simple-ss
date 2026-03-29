@@ -80,7 +80,7 @@ export async function verifyBusinessSession(token: string): Promise<BusinessSess
   const valid = await crypto.subtle.verify(
     'HMAC',
     key,
-    sigBytes,
+    sigBytes as unknown as BufferSource,
     new TextEncoder().encode(payload),
   ).catch(() => false);
 
