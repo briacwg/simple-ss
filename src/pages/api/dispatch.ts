@@ -213,7 +213,7 @@ export const POST: APIRoute = async ({ request }) => {
     response:    i < dispatchWidth ? 'pending' : null,
   }));
 
-  const dispatchId = `dp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const dispatchId = `dp_${Date.now()}_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
   const now        = Date.now();
 
   const windowSec = getWindowSeconds(allBusinesses.length);
