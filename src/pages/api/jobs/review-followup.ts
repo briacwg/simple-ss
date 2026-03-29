@@ -44,6 +44,12 @@ export const POST: APIRoute = async ({ request }) => {
 
   const record: DispatchRecord = typeof raw === 'string' ? JSON.parse(raw) : raw;
 
+  // Skip if the dispatch was not accepted — only accepted leads warrant a review.
+  // Declined or timed-out dispatches never resulted in service so no review is sent.
+  if (record.status !== 'accepted' && record.status !== 'review_sent') {
+    return json({ ok: true, skipped: 'not_accepted' });
+  }
+
   // Skip if already sent or no consumer phone on record
   if (record.reviewSentAt) return json({ ok: true, skipped: 'already_sent' });
   if (!record.consumerPhone) return json({ ok: true, skipped: 'no_consumer_phone' });

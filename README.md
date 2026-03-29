@@ -804,7 +804,8 @@ vercel deploy
 | Claim dedup lock | `ss:claim:lock:{placeId}:{phone}` | 15 minutes |
 | SMS opt-out | `ss:sms:optout:{phone}` | permanent |
 | AI Workspace rate limit | `ss:workspace:rl:{phone}` | 1 hour (sliding window) |
-| Smart-rank scores (v3) | `ss:smart-rank:v3:b{bucket}:{label}:{cell}:{phones}` | 3 minutes |
+| Smart-rank scores (v5) | `ss:smart-rank:v5:b{bucket}:{urgency}:{label}:{cell}:{phones}` | 3 minutes |
+| Workspace settings | `ss:workspace:settings:v1:{phone}` | 5 minutes |
 | Stripe webhook event dedup | `ss:stripe:event:{event_id}` | 24 hours |
 | Website summary | `sr:place:v1:{placeId}:website_summary:{hex12}` | 30 days |
 | Summarize rate limit | `ss:summarize:rl:{ip}` | 60 seconds (sliding window) |
@@ -835,3 +836,164 @@ Redis keys are **intentionally compatible** with the main ServiceSurfer platform
 - **Consumer reviews are idempotent and state-gated.** `/api/review` enforces a one-review-per-dispatch guard (409 on duplicate) and only accepts submissions for dispatches in `accepted` or `review_sent` state — preventing reviews on expired or unaccepted leads. Redis TTL is preserved via `r.ttl()` rather than a stale derived timestamp.
 - **Dispatch is idempotent within a 5-minute window.** `POST /api/dispatch` checks a dedup key (`ss:dispatch:dedup:{phone}:{callRefPrefix}`) before creating a new dispatch record. Button double-taps and network retries return the existing `dispatchId` with `{ deduplicated: true }` instead of sending duplicate lead SMS messages to businesses. The key is scoped to consumerPhone × primary callRef so re-dispatching to a different business still works.
 - **Concurrent YES replies are serialised with an accept-lock.** When multiple businesses are notified simultaneously and two reply YES within milliseconds, `/api/webhooks/sms-inbound` uses a Redis `SET NX EX 60` on `ss:dispatch:accept-lock:{dispatchId}` to ensure only one acceptance proceeds. The loser receives a graceful TwiML reply; the 60-second TTL prevents lock-induced starvation if the winner crashes mid-flight.
+- **OTP codes and claim IDs are cryptographically secure.** `POST /api/claim` uses `crypto.getRandomValues()` (not `Math.random()`) for the 6-digit verification code and claim ID suffix, consistent with how call session PINs are generated.
+- **Review follow-up is status-gated.** `/api/jobs/review-followup` only sends the review-request SMS when the dispatch is in `accepted` or `review_sent` state — declined and timed-out dispatches are skipped silently.
+
+---
+
+## Database Schema
+
+All tables live in a single Supabase (Postgres) project.  Apply this DDL once to create the required schema; the application uses the Supabase service-role key and has no migrations framework beyond this reference.
+
+```sql
+-- dispatch_training_events: every dispatch outcome for ML training and smart-rank
+create table if not exists dispatch_training_events (
+  id             uuid primary key default gen_random_uuid(),
+  dispatch_id    text not null,
+  business_phone text not null,
+  service_label  text,
+  location_cell  text,
+  supply_level   text not null,
+  window_seconds integer not null default 90,
+  outcome        text not null check (outcome in ('accepted','declined','timeout')),
+  response_ms    integer,
+  queue_position integer not null default 0,
+  created_at     timestamptz not null default now()
+);
+create index if not exists dte_phone_idx    on dispatch_training_events (business_phone);
+create index if not exists dte_dispatch_idx on dispatch_training_events (dispatch_id);
+create index if not exists dte_label_cell   on dispatch_training_events (service_label, location_cell);
+
+-- lead_events: unified event log for analytics and dashboard aggregation
+-- event_type values: dispatch_sent | dispatch_accepted | dispatch_declined |
+--                    dispatch_timeout | call_initiated | review_received
+create table if not exists lead_events (
+  id             uuid primary key default gen_random_uuid(),
+  dispatch_id    text not null,
+  business_phone text not null,
+  event_type     text not null,
+  service_label  text,
+  location_cell  text,
+  consumer_phone text,
+  meta           jsonb,          -- urgencyTier, queuePosition, responseMs, rating, etc.
+  created_at     timestamptz not null default now()
+);
+create index if not exists le_phone_dispatch on lead_events (business_phone, dispatch_id);
+create index if not exists le_event_type     on lead_events (event_type);
+create index if not exists le_dispatch_type  on lead_events (dispatch_id, event_type);
+
+-- user_passkeys: WebAuthn credential storage (one row per registered authenticator)
+create table if not exists user_passkeys (
+  id             uuid primary key default gen_random_uuid(),
+  user_id        text not null,               -- E.164 business phone
+  credential_id  text not null unique,        -- base64url-encoded credential ID
+  public_key     text not null,               -- COSE-encoded public key (base64url)
+  counter        bigint not null default 0,   -- bumped on every authentication
+  device_type    text,                        -- 'singleDevice' | 'multiDevice'
+  backed_up      boolean not null default false,
+  transports     text[],                      -- 'internal' | 'usb' | 'nfc' | 'ble' etc.
+  name           text,                        -- user-assigned friendly label
+  created_at     timestamptz not null default now(),
+  last_used_at   timestamptz
+);
+create index if not exists up_user_idx on user_passkeys (user_id);
+
+-- webauthn_challenges: short-lived challenges (5 min TTL, single-use)
+create table if not exists webauthn_challenges (
+  id          uuid primary key default gen_random_uuid(),
+  challenge   text not null unique,
+  user_id     text,
+  type        text not null check (type in ('registration','authentication')),
+  used_at     timestamptz,                    -- set on successful verification
+  created_at  timestamptz not null default now(),
+  expires_at  timestamptz not null default (now() + interval '5 minutes')
+);
+
+-- business_workspace_settings: per-business AI Workspace configuration + plan
+create table if not exists business_workspace_settings (
+  business_phone       text primary key,
+  plan_slug            text not null default 'free'
+                         check (plan_slug in ('free','starter','pro','elite')),
+  tone                 text not null default 'friendly'
+                         check (tone in ('friendly','premium','direct')),
+  answer_length        text not null default 'balanced'
+                         check (answer_length in ('short','balanced','detailed')),
+  banned_claims        text[] not null default '{}',
+  required_phrases     text[] not null default '{}',
+  collect_lead_details boolean not null default false,
+  escalate_to_call     boolean not null default true,
+  escalate_to_video    boolean not null default false,
+  knowledge_urls       text[] not null default '{}',   -- max 10 URLs
+  starter_questions    text[] not null default '{}',   -- max 10 questions
+  notes                text,                           -- freeform coaching context
+  updated_at           timestamptz not null default now()
+);
+
+-- business_dashboard_metrics: hourly-refreshed 30-day metrics cache
+-- Populated by /api/dashboard via refresh_dashboard_metrics RPC or JS fallback.
+create table if not exists business_dashboard_metrics (
+  business_phone     text primary key,
+  leads_30d          integer not null default 0,
+  calls_30d          integer not null default 0,
+  dispatches_30d     integer not null default 0,
+  accepted_30d       integer not null default 0,
+  declined_30d       integer not null default 0,
+  timeout_30d        integer not null default 0,
+  avg_response_ms    integer,                  -- ms; null if no accepted dispatches
+  top_service_labels text[] not null default '{}',  -- top 5 by lead volume
+  updated_at         timestamptz not null default now()
+);
+
+-- Optional: stored function for atomic dashboard refresh (single Supabase round-trip)
+-- If not deployed, /api/dashboard falls back to JavaScript aggregation.
+create or replace function refresh_dashboard_metrics(p_phone text)
+returns void language plpgsql as $$
+declare
+  v_since timestamptz := now() - interval '30 days';
+  v_leads int; v_calls int; v_accepted int; v_declined int; v_timeout int;
+  v_avg_ms numeric; v_labels text[];
+begin
+  select
+    count(*) filter (where event_type = 'dispatch_sent'),
+    count(*) filter (where event_type = 'call_initiated'),
+    count(*) filter (where event_type = 'dispatch_accepted'),
+    count(*) filter (where event_type = 'dispatch_declined'),
+    count(*) filter (where event_type = 'dispatch_timeout')
+  into v_leads, v_calls, v_accepted, v_declined, v_timeout
+  from lead_events
+  where business_phone = p_phone and created_at >= v_since;
+
+  select avg((meta->>'responseMs')::int)
+  into v_avg_ms
+  from lead_events
+  where business_phone = p_phone
+    and event_type = 'dispatch_accepted'
+    and meta->>'responseMs' is not null
+    and created_at >= v_since;
+
+  select array_agg(service_label order by cnt desc)
+  into v_labels
+  from (
+    select service_label, count(*) as cnt
+    from lead_events
+    where business_phone = p_phone and service_label is not null and created_at >= v_since
+    group by service_label order by cnt desc limit 5
+  ) t;
+
+  insert into business_dashboard_metrics
+    (business_phone, leads_30d, calls_30d, dispatches_30d, accepted_30d, declined_30d,
+     timeout_30d, avg_response_ms, top_service_labels, updated_at)
+  values
+    (p_phone, v_leads, v_calls, v_leads, v_accepted, v_declined,
+     v_timeout, v_avg_ms::int, coalesce(v_labels,'{}'), now())
+  on conflict (business_phone) do update set
+    leads_30d = excluded.leads_30d, calls_30d = excluded.calls_30d,
+    dispatches_30d = excluded.dispatches_30d, accepted_30d = excluded.accepted_30d,
+    declined_30d = excluded.declined_30d, timeout_30d = excluded.timeout_30d,
+    avg_response_ms = excluded.avg_response_ms,
+    top_service_labels = excluded.top_service_labels, updated_at = excluded.updated_at;
+end;
+$$;
+```
+
+> **RLS note:** Enable Row Level Security on `user_passkeys` and `business_workspace_settings`.  The service-role key used server-side bypasses RLS; enabling it prevents client-side credential leakage if the anon key is ever exposed.

@@ -55,10 +55,13 @@ export const POST: APIRoute = async ({ request }) => {
   const existing = await r.get(dedupKey).catch(() => null);
   if (existing) return err('a verification code was already sent — please wait before requesting another', 429);
 
-  // Generate a 6-digit code with collision avoidance
-  const code = String(Math.floor(100_000 + Math.random() * 900_000));
-  const now  = Date.now();
-  const claimId = `cl_${now}_${Math.random().toString(36).slice(2, 8)}`;
+  // Generate a cryptographically secure 6-digit OTP and claim ID.
+  // Math.random() is a PRNG — unsuitable for security tokens.
+  const otpBuf = new Uint32Array(1);
+  crypto.getRandomValues(otpBuf);
+  const code    = String(100_000 + (otpBuf[0]! % 900_000));
+  const now     = Date.now();
+  const claimId = `cl_${now}_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`;
 
   const claim: PendingClaim = {
     claimId,

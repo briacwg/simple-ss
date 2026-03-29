@@ -133,7 +133,10 @@ export const POST: APIRoute = async ({ request }) => {
   return json({ received: true });
 };
 
-// ── Database helper ───────────────────────────────────────────────────────────
+// ── Database + cache helper ───────────────────────────────────────────────────
+
+// Keep in sync with workspace.ts SETTINGS_CACHE_KEY
+const SETTINGS_CACHE_KEY = (phone: string) => `ss:workspace:settings:v1:${phone}`;
 
 async function upsertPlanSlug(
   sb: NonNullable<ReturnType<typeof getSupabase>>,
@@ -144,6 +147,11 @@ async function upsertPlanSlug(
     .from('business_workspace_settings')
     .upsert({ business_phone: businessPhone, plan_slug: planSlug } as never, { onConflict: 'business_phone' })
     .then(() => null, () => null);
+
+  // Invalidate the workspace settings cache so the plan upgrade is visible
+  // immediately on the next /api/workspace request without waiting for the 5-min TTL.
+  const r = redis();
+  if (r) await r.del(SETTINGS_CACHE_KEY(businessPhone)).catch(() => null);
 }
 
 // ── Stripe HMAC-SHA256 signature verification ─────────────────────────────────
