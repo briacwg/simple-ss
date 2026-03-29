@@ -20,7 +20,7 @@ POST /api/match                     POST /api/business/passkeys/authenticate/*
 Browser (results cards)               ├─ GET /api/dashboard     → 30d metrics
   │  urgencyTier / diagnosisHint      ├─ GET /api/workspace-settings → form
   │  aiSummary / Layer 3 summaries    └─ GET /api/business/passkeys/list
-  │  user taps "Call" or "Send request"
+  │  user taps "Call" or "Video"
   ▼
 POST /api/call                          POST /api/dispatch (supply-adaptive)
   ├─ resolveCallRef() — HMAC verify       ├─ reRankByAcceptance() — 5-signal composite score
