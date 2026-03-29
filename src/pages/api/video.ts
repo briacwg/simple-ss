@@ -22,8 +22,8 @@ export const POST: APIRoute = async ({ request }) => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      // Unique ID to correlate this session in the video service's logs
-      callSessionId: `ss_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      // Unique ID to correlate this session in the video service's logs (crypto-random)
+      callSessionId: `ss_${Date.now()}_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`,
       problem: String(problem).slice(0, 180) || 'Need help with a local service issue',
       location: String(location).slice(0, 120) || undefined,
       voiceContext: {
