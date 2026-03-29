@@ -79,9 +79,7 @@ export const prerender = false;
     .search-send svg { width:1.1rem; height:1.1rem; }
 
     /* Quick actions — Call & Video below search bar */
-    .quick-actions {
-      display: flex; gap: .6rem; margin-top: .75rem; width: 100%;
-    }
+    .quick-actions { display: flex; gap: .6rem; margin-top: .75rem; width: 100%; }
     .qa-btn {
       flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: .45rem;
       padding: .65rem 1rem; border-radius: 12px; font-size: .92rem; font-weight: 700;
@@ -126,11 +124,40 @@ export const prerender = false;
     }
     .qi-bar b { color:var(--accent-blue); font-weight:700; }
 
+    /* Diagnosis hint callout */
+    .diagnosis-callout {
+      display: flex; align-items: flex-start; gap: .6rem;
+      padding: .8rem 1rem; border-radius: 1rem; margin-bottom: 1rem;
+      font-size: .88rem; line-height: 1.5;
+      border: 1px solid; animation: fadeIn .3s ease;
+    }
+    .diagnosis-callout--critical {
+      background: rgba(220,38,38,.06); border-color: rgba(220,38,38,.25); color: #b91c1c;
+    }
+    .diagnosis-callout--high {
+      background: rgba(245,158,11,.06); border-color: rgba(245,158,11,.28); color: #92400e;
+    }
+    .diagnosis-callout--medium {
+      background: color-mix(in oklab,var(--accent-blue) 5%,var(--bg-primary));
+      border-color: color-mix(in oklab,var(--accent-blue) 22%,var(--border-color));
+      color: var(--text-secondary);
+    }
+    .diagnosis-callout--low { display: none; }
+    .diagnosis-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: .05rem; }
+    .diagnosis-label { font-weight: 700; }
+    .diagnosis-cause { color: var(--text-tertiary); font-size: .82rem; }
+    @media (prefers-color-scheme: dark) {
+      .diagnosis-callout--critical { background: rgba(220,38,38,.12); color: #fca5a5; }
+      .diagnosis-callout--high { background: rgba(245,158,11,.10); color: #fcd34d; }
+    }
+
     /* Spinner */
     .spinner-wrap { display:flex; flex-direction:column; align-items:center; gap:.7rem; padding:3rem 0; }
     .spinner { width:2.2rem; height:2.2rem; border:3px solid var(--border-color); border-top-color:var(--accent-blue); border-radius:50%; animation:spin .65s linear infinite; }
     .spinner-text { font-size:.95rem; color:var(--text-tertiary); font-weight:600; }
+    .spinner-hint { font-size:.82rem; color:var(--accent-blue); font-style:italic; max-width:280px; text-align:center; }
     @keyframes spin { to { transform:rotate(360deg); } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
     /* Empty state */
     .empty { text-align:center; padding:3rem 0; }
@@ -161,6 +188,8 @@ export const prerender = false;
     .scard:hover::before { opacity:1; }
     .scard--spotlight { border-color:color-mix(in oklab,#f59e0b 42%,var(--border-color)); }
     .scard--spotlight::before { opacity:.28; }
+    .scard--urgent { border-color: color-mix(in oklab,#f59e0b 55%,var(--border-color)); }
+    .scard--critical { border-color: color-mix(in oklab,#dc2626 45%,var(--border-color)); }
 
     .scard-inner { display:flex; flex-direction:column; gap:.8rem; flex:1; position:relative; z-index:1; }
     .scard-top { display:flex; flex-wrap:wrap; align-items:center; gap:.45rem; }
@@ -192,6 +221,17 @@ export const prerender = false;
     .stars { color:#f59e0b; }
     .scard-addr { font-size:.84rem; color:var(--text-tertiary); line-height:1.45; }
 
+    /* Website summary — streamed in asynchronously */
+    .scard-summary {
+      font-size: .84rem; color: var(--text-tertiary); line-height: 1.55;
+      border-top: 1px solid color-mix(in oklab, var(--border-color) 65%, transparent);
+      padding-top: .7rem; animation: fadeIn .4s ease;
+    }
+    .scard-summary--loading {
+      color: var(--text-muted); font-style: italic;
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
     .scard-actions {
       display:flex; flex-direction:column; gap:.6rem; margin-top:auto;
       padding-top:.9rem; border-top:1px solid color-mix(in oklab,var(--border-color) 82%,var(--accent-blue) 18%);
@@ -221,6 +261,16 @@ export const prerender = false;
       color:var(--accent-blue); border:1px solid color-mix(in oklab,var(--accent-blue) 36%,var(--border-color));
     }
     .action-btn--web:hover { background:color-mix(in oklab,var(--accent-blue) 8%,var(--bg-primary)); }
+    .action-btn--dispatch {
+      background: color-mix(in oklab,var(--bg-secondary) 92%,var(--text-primary));
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
+    }
+    .action-btn--dispatch:hover { background: color-mix(in oklab,var(--bg-primary) 85%,var(--text-primary)); color: var(--text-primary); }
+    .action-btn--dispatch--sent {
+      background: rgba(22,163,74,.08); color: #15803d;
+      border-color: rgba(22,163,74,.28); pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -281,9 +331,10 @@ export const prerender = false;
 </div>
 
 <script>
-  let lat = 36.1627, lng = -86.7816, lastQuery = '';
+  let lat = 36.1627, lng = -86.7816, lastQuery = '', lastLabel = '';
+  let lastBusinesses = []; // full registry for dispatch
 
-  // Geolocation — show "City, ST"
+  // ── Geolocation ──────────────────────────────────────────────────────────────
   const locLabel = document.getElementById('loc-label');
   function setLoc(la, lo, city, state) {
     lat = la; lng = lo;
@@ -312,12 +363,9 @@ export const prerender = false;
     }).catch(() => null);
   }
 
-  const input = document.getElementById('search-input');
+  const input = /** @type {HTMLInputElement} */ (document.getElementById('search-input'));
   const sendBtn = document.getElementById('send-btn');
   const resultsEl = document.getElementById('results');
-
-  // Registry avoids double-quote collisions in onclick attributes
-  let registry = [];
 
   let imTimer;
   sendBtn.addEventListener('click', () => { clearTimeout(imTimer); search(input.value.trim()); });
@@ -334,6 +382,7 @@ export const prerender = false;
   document.querySelectorAll('.pill').forEach(p => p.addEventListener('click', () => search(p.dataset.q)));
   document.getElementById('global-video')?.addEventListener('click', () => doVideo('', lastQuery, null));
 
+  // ── Search ───────────────────────────────────────────────────────────────────
   function search(query) {
     if (!query.trim()) return;
     lastQuery = query;
@@ -348,30 +397,81 @@ export const prerender = false;
       body: JSON.stringify({ query, lat, lng }),
     })
       .then(r => r.json())
-      .then(({ businesses, label }) => {
+      .then(({ businesses, label, diagnosisHint, urgencyTier, aiSummary }) => {
         sendBtn.disabled = false;
         if (!businesses?.length) {
           resultsEl.innerHTML = `<div class="empty"><h3>No pros found nearby</h3><p>Try a different description or broader terms.</p></div>`;
           return;
         }
-        registry = businesses;
+        lastBusinesses = businesses;
+        lastLabel = label || '';
         const lbl = label ? label.charAt(0).toUpperCase() + label.slice(1) : '';
         const locText = locLabel?.textContent && locLabel.textContent !== 'your area' ? ` near ${locLabel.textContent}` : ' nearby';
+
+        // ── Diagnosis callout (Layer 1 inferDiagnosisHint) ──────────────────
+        const urgencyClass = urgencyTier === 'critical' ? 'critical' : urgencyTier === 'high' ? 'high' : 'medium';
+        const urgencyIcon  = urgencyTier === 'critical' ? '🚨' : urgencyTier === 'high' ? '⚡' : 'ℹ️';
+        const diagnosisHtml = diagnosisHint
+          ? `<div class="diagnosis-callout diagnosis-callout--${urgencyClass}">
+               <span class="diagnosis-icon">${urgencyIcon}</span>
+               <div>
+                 <div class="diagnosis-label">${esc(diagnosisHint.diagnosisLabel)}</div>
+                 <div class="diagnosis-cause">${esc(diagnosisHint.likelyCauses)}</div>
+               </div>
+             </div>`
+          : '';
+
+        // ── AI summary hint (Cerebras one-liner) ────────────────────────────
+        const aiHint = aiSummary
+          ? `<div class="qi-bar">${esc(aiSummary)}</div>`
+          : (lbl ? `<div class="qi-bar"><b>${businesses.length} ${lbl}</b> open${locText}</div>` : '');
+
         resultsEl.innerHTML = `
-          ${lbl ? `<div class="qi-bar"><b>${businesses.length} ${lbl}</b> open${locText}</div>` : ''}
+          ${aiHint}
+          ${diagnosisHtml}
           <div class="decision-deck">${businesses.map((b, i) => card(b, i)).join('')}</div>
         `;
+
+        // Wire card buttons
         resultsEl.querySelectorAll('[data-call-idx]').forEach(btn => {
           btn.addEventListener('click', () => {
-            const b = registry[+btn.dataset.callIdx];
+            const b = lastBusinesses[+btn.dataset.callIdx];
             if (b) doCall(b.callRef, b.name, btn);
           });
         });
         resultsEl.querySelectorAll('[data-video-idx]').forEach(btn => {
           btn.addEventListener('click', () => {
-            const b = registry[+btn.dataset.videoIdx];
+            const b = lastBusinesses[+btn.dataset.videoIdx];
             if (b) doVideo(b.name, lastQuery, btn);
           });
+        });
+        resultsEl.querySelectorAll('[data-dispatch-idx]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const b = lastBusinesses[+btn.dataset.dispatchIdx];
+            if (b) doDispatch(b, lastBusinesses.slice(1), btn);
+          });
+        });
+
+        // ── Layer 3: load website summaries asynchronously ──────────────────
+        businesses.forEach((b, i) => {
+          if (!b.website || !b.placeId) return;
+          const summaryEl = document.getElementById(`summary-${i}`);
+          if (!summaryEl) return;
+          fetch('/api/summarize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ placeId: b.placeId, websiteUrl: b.website, businessName: b.name }),
+          })
+            .then(r => r.json())
+            .then(({ summary }) => {
+              if (summary && summaryEl) {
+                summaryEl.textContent = summary;
+                summaryEl.classList.remove('scard-summary--loading');
+              } else if (summaryEl) {
+                summaryEl.remove();
+              }
+            })
+            .catch(() => summaryEl && summaryEl.remove());
         });
       })
       .catch(() => {
@@ -380,6 +480,7 @@ export const prerender = false;
       });
   }
 
+  // ── Card template ────────────────────────────────────────────────────────────
   function card(b, rank) {
     const isBest = rank === 0;
     const rankHtml = isBest
@@ -408,6 +509,15 @@ export const prerender = false;
         <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
         <span>Website</span>
       </a>` : '';
+    const dispatchHtml = b.callRef ? `
+      <button class="action-btn action-btn--dispatch" data-dispatch-idx="${rank}" title="Notify this pro about your request — they'll reply YES to claim it">
+        <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        <span>Send request</span>
+      </button>` : '';
+    // Layer 3: placeholder shown while website summary loads
+    const summaryHtml = b.website
+      ? `<div class="scard-summary scard-summary--loading" id="summary-${rank}">Loading business info…</div>`
+      : '';
     return `
       <article class="scard${isBest ? ' scard--spotlight' : ''}">
         <div class="scard-inner">
@@ -415,37 +525,87 @@ export const prerender = false;
           <h3 class="scard-name">${esc(b.name)}</h3>
           ${proof}
           ${b.address ? `<p class="scard-addr">${esc(b.address)}</p>` : ''}
+          ${summaryHtml}
           <div class="scard-actions">
             ${callHtml}
-            <div class="scard-actions-row">${videoHtml}${webHtml}</div>
+            <div class="scard-actions-row">${videoHtml}${webHtml}${dispatchHtml}</div>
           </div>
         </div>
       </article>`;
   }
 
-  // Call — phone number stays server-side
-  window.doCall = async (callRef, businessName, btn) => {
+  // ── Call flow ────────────────────────────────────────────────────────────────
+  async function doCall(callRef, businessName, btn) {
     const orig = btn.innerHTML;
     btn.disabled = true; btn.innerHTML = btn.innerHTML.replace(/<span>.*?<\/span>/, '<span>Connecting…</span>');
     try {
-      const { telHref, error } = await fetch('/api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ callRef, businessName }) }).then(r => r.json());
+      const { telHref, error } = await fetch('/api/call', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callRef, businessName }),
+      }).then(r => r.json());
       if (error || !telHref) { alert(error || 'Call unavailable.'); btn.disabled = false; btn.innerHTML = orig; return; }
       window.location.href = telHref;
       btn.disabled = false; btn.innerHTML = orig;
-    } catch (e) { btn.disabled = false; btn.innerHTML = orig; alert('Could not connect. Try again.'); }
-  };
+    } catch { btn.disabled = false; btn.innerHTML = orig; alert('Could not connect. Try again.'); }
+  }
 
-  // Video
-  window.doVideo = async (businessName, problem, btn) => {
+  // ── Video flow ───────────────────────────────────────────────────────────────
+  async function doVideo(businessName, problem, btn) {
     const orig = btn?.innerHTML;
     if (btn) { btn.disabled = true; btn.innerHTML = btn.innerHTML.replace(/<span>.*?<\/span>/, '<span>Starting…</span>'); }
     try {
-      const { sessionUrl, error } = await fetch('/api/video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ businessName, problem }) }).then(r => r.json());
+      const { sessionUrl, error } = await fetch('/api/video', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ businessName, problem }),
+      }).then(r => r.json());
       if (error || !sessionUrl) { alert('Video unavailable right now.'); if (btn) { btn.disabled = false; btn.innerHTML = orig; } return; }
       window.open(sessionUrl, '_blank');
       if (btn) { btn.disabled = false; btn.innerHTML = orig; }
-    } catch (e) { if (btn) { btn.disabled = false; btn.innerHTML = orig; } alert('Video unavailable right now.'); }
-  };
+    } catch { if (btn) { btn.disabled = false; btn.innerHTML = orig; } alert('Video unavailable right now.'); }
+  }
+
+  // ── Dispatch flow (supply-adaptive SMS to pros) ──────────────────────────────
+  async function doDispatch(primaryBusiness, otherBusinesses, btn) {
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = btn.innerHTML.replace(/<span>.*?<\/span>/, '<span>Sending…</span>');
+
+    const consumerPhone = sessionStorage.getItem('ss_consumer_phone') ||
+      prompt('Enter your phone number to get notified when a pro accepts (optional):') || '';
+    if (consumerPhone) sessionStorage.setItem('ss_consumer_phone', consumerPhone);
+
+    const additional = otherBusinesses
+      .filter(b => b.callRef)
+      .slice(0, 5)
+      .map(b => ({ callRef: b.callRef, name: b.name }));
+
+    try {
+      const res = await fetch('/api/dispatch', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          callRef:              primaryBusiness.callRef,
+          businessName:         primaryBusiness.name,
+          problem:              lastQuery,
+          location:             locLabel?.textContent || '',
+          consumerPhone:        consumerPhone || undefined,
+          additionalBusinesses: additional,
+          serviceLabel:         lastLabel || undefined,
+          lat, lng,
+        }),
+      }).then(r => r.json());
+
+      if (res.dispatchId) {
+        btn.classList.add('action-btn--dispatch--sent');
+        btn.innerHTML = '<svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><span>Request sent!</span>';
+      } else {
+        btn.disabled = false; btn.innerHTML = orig;
+        alert('Could not send request. Please try calling instead.');
+      }
+    } catch {
+      btn.disabled = false; btn.innerHTML = orig;
+      alert('Could not send request. Please try calling instead.');
+    }
+  }
 
   function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 </script>
