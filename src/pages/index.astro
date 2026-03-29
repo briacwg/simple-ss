@@ -400,22 +400,30 @@ export const prerender = false;
   sendBtn.addEventListener('click', () => { clearTimeout(imTimer); search(input.value.trim()); });
   input.addEventListener('keydown', e => { if (e.key === 'Enter') { clearTimeout(imTimer); search(input.value.trim()); } });
 
-  // Instant match — debounced 500ms while typing
+  // Auto-search: fire 800ms after the user pauses typing.
+  // Pass the raw (un-trimmed) value so search() never rewrites the input — this
+  // prevents the cursor jumping and preserves trailing spaces the user typed.
   input.addEventListener('input', () => {
     clearTimeout(imTimer);
-    const q = input.value.trim();
-    if (q.length < 4) return;
-    imTimer = setTimeout(() => search(q), 500);
+    const raw = input.value;
+    if (raw.trim().length < 4) return;
+    imTimer = setTimeout(() => search(raw, true), 800);
   });
 
-  document.querySelectorAll('.pill').forEach(p => p.addEventListener('click', () => search(p.dataset.q)));
+  document.querySelectorAll('.pill').forEach(p => p.addEventListener('click', () => {
+    input.value = p.dataset.q;
+    search(p.dataset.q);
+  }));
   document.getElementById('global-video')?.addEventListener('click', () => doVideo('', lastQuery, null));
 
   // ── Search ───────────────────────────────────────────────────────────────────
-  function search(query) {
-    if (!query.trim()) return;
-    lastQuery = query;
-    input.value = query;
+  // fromInput=true: called from the auto-search listener — don't overwrite the
+  // input value (preserves cursor position and trailing spaces the user typed).
+  function search(query, fromInput = false) {
+    const q = query.trim();
+    if (!q) return;
+    lastQuery = q;
+    if (!fromInput) input.value = q;   // only sync for pill/send/enter triggers
     sendBtn.disabled = true;
     resultsEl.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><p class="spinner-text">Finding the best matches…</p></div>`;
     resultsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -423,7 +431,7 @@ export const prerender = false;
     fetch('/api/match', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, lat, lng }),
+      body: JSON.stringify({ query: q, lat, lng }),
     })
       .then(r => r.json())
       .then(({ businesses, label, diagnosisHint, urgencyTier, aiSummary }) => {
