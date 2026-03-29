@@ -1,0 +1,76 @@
+/**
+ * POST /api/internal/dispatch-timeout
+ *
+ * QStash webhook — fires 5 minutes after a business is notified of a lead.
+ * If the business has not replied YES, their queue entry is marked as timed out
+ * and the dispatch advances to the next business in the queue.
+ *
+ * This endpoint is internal-only: it is never called by the consumer frontend.
+ * Requests are authorized with a DISPATCH_JOB_SECRET bearer token to prevent
+ * unauthorized queue manipulation.
+ */
+
+import type { APIRoute } from 'astro';
+import { redis } from '../../../lib';
+import { DK, BPDK, DISPATCH_TTL, type DispatchRecord } from '../dispatch';
+import { advanceQueue } from '../webhooks/sms-inbound';
+
+export const prerender = false;
+
+export const POST: APIRoute = async ({ request }) => {
+  // Verify the caller is authorized (QStash sets this from the scheduled job)
+  const jobSecret = import.meta.env.DISPATCH_JOB_SECRET;
+  if (jobSecret) {
+    const auth = request.headers.get('Authorization') || '';
+    if (auth !== `Bearer ${jobSecret}`) return err('unauthorized', 401);
+  }
+
+  const body = await request.json().catch(() => null);
+  if (!body?.dispatchId || !body?.businessPhone) return err('dispatchId and businessPhone required', 400);
+
+  const dispatchId    = String(body.dispatchId).slice(0, 64);
+  const businessPhone = String(body.businessPhone).slice(0, 20);
+
+  const r = redis();
+  if (!r) return err('redis unavailable', 503);
+
+  const raw = await r.get<string | DispatchRecord>(DK(dispatchId)).catch(() => null);
+  if (!raw) return json({ ok: true, skipped: 'dispatch_not_found' });
+
+  const record: DispatchRecord = typeof raw === 'string' ? JSON.parse(raw) : raw;
+
+  // If the lead was already accepted or exhausted, nothing to do
+  if (record.status === 'accepted' || record.status === 'declined_all') {
+    return json({ ok: true, skipped: `already_${record.status}` });
+  }
+
+  // Find the queue entry for this business
+  const queueIdx = record.businessQueue.findIndex(b => b.phone === businessPhone);
+  if (queueIdx === -1) return json({ ok: true, skipped: 'business_not_in_queue' });
+
+  const entry = record.businessQueue[queueIdx]!;
+
+  // Skip if the business already responded (beat the timeout)
+  if (entry.response === 'accepted' || entry.response === 'declined') {
+    return json({ ok: true, skipped: `already_${entry.response}` });
+  }
+
+  // Mark as timed out and advance the queue
+  const updatedQueue = record.businessQueue.map((b, i) =>
+    i === queueIdx ? { ...b, response: 'timeout' as const } : b,
+  );
+  const updated: DispatchRecord = { ...record, businessQueue: updatedQueue };
+
+  // Remove the stale phone index
+  await r.del(BPDK(businessPhone)).catch(() => null);
+  await r.set(DK(dispatchId), JSON.stringify(updated), { ex: DISPATCH_TTL }).catch(() => null);
+
+  // Advance to next business — this function handles queue exhaustion and consumer notification
+  await advanceQueue(r, updated, queueIdx);
+
+  return json({ ok: true, advanced: true });
+};
+
+const json = (d: unknown, s = 200) =>
+  new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } });
+const err = (m: string, s: number) => json({ error: m }, s);
