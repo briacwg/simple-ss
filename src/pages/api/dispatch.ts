@@ -275,8 +275,6 @@ export const POST: APIRoute = async ({ request }) => {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-}
-
 /** Delegates to lib/qstash.ts — schedules per-business timeout via QStash. */
 async function scheduleDispatchTimeout(
   dispatchId: string,
@@ -295,6 +293,4 @@ async function scheduleReviewFollowup(dispatchId: string): Promise<void> {
   if (!siteUrl) return;
   await qScheduleReview(dispatchId, siteUrl);
 }
-
-// ── Response helpers ──────────────────────────────────────────────────────────
 

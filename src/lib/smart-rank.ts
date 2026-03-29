@@ -65,6 +65,18 @@ interface ReviewStats {
   ratingSum: number;
 }
 
+// Row shapes for untyped Supabase tables (not yet in generated Database type)
+interface TrainingRow {
+  business_phone: string;
+  outcome:        string;
+  service_label:  string | null;
+  location_cell:  string | null;
+}
+interface ReviewRow {
+  business_phone: string;
+  meta:           { rating?: number } | null;
+}
+
 // ── Cache ─────────────────────────────────────────────────────────────────────
 
 const CACHE_TTL = 60 * 10; // 10 minutes
@@ -115,30 +127,37 @@ export async function reRankByAcceptance(
   if (!sb) return candidates;
 
   // Fetch training events and review scores in parallel — both use the same
-  // candidate phone set; a shared 1.5 s deadline prevents dispatch from stalling.
-  const deadline = <T>(p: Promise<T>) =>
-    Promise.race([p, new Promise<never>((_, r) => setTimeout(() => r(new Error('timeout')), 1500))]);
-
-  const [trainingResult, reviewResult] = await Promise.all([
-    deadline(
+  // candidate phone set.  Each query gets its own 1.5 s deadline so that a slow
+  // DB response never blocks dispatch.  Promise.resolve() converts the Supabase
+  // PromiseLike into a real Promise before passing to Promise.race.
+  const trainingPromise = Promise.race([
+    Promise.resolve(
       sb
         .from('dispatch_training_events')
         .select('business_phone, outcome, service_label, location_cell')
         .in('business_phone', phones)
         .limit(500),
-    ).catch(() => ({ data: null, error: new Error('timeout') as Error })),
-    deadline(
+    ),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500)),
+  ]).catch(() => ({ data: null as null, error: new Error('timeout') }));
+
+  const reviewPromise = Promise.race([
+    Promise.resolve(
       sb
         .from('lead_events')
         .select('business_phone, meta')
         .in('business_phone', phones)
         .eq('event_type', 'review_received')
         .limit(200),
-    ).catch(() => ({ data: null, error: null })),
-  ]);
+    ),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500)),
+  ]).catch(() => ({ data: null as null, error: null }));
+
+  const [trainingResult, reviewResult] = await Promise.all([trainingPromise, reviewPromise]);
 
   if (trainingResult.error || !trainingResult.data) return candidates;
-  const data = trainingResult.data;
+  const data        = trainingResult.data as unknown as TrainingRow[];
+  const reviewData  = (reviewResult.data ?? []) as unknown as ReviewRow[];
 
   // Aggregate specific (label+cell) and general acceptance stats per phone
   const specificStats = new Map<string, AcceptanceStats>();
@@ -162,8 +181,8 @@ export async function reRankByAcceptance(
 
   // Aggregate consumer review scores per phone (from lead_events review_received events)
   const reviewStats = new Map<string, ReviewStats>();
-  for (const row of reviewResult.data ?? []) {
-    const rating = (row.meta as { rating?: number } | null)?.rating;
+  for (const row of reviewData) {
+    const rating = row.meta?.rating;
     if (typeof rating === 'number' && rating >= 1 && rating <= 5) {
       const prev = reviewStats.get(row.business_phone) ?? { total: 0, ratingSum: 0 };
       reviewStats.set(row.business_phone, {
