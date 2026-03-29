@@ -767,6 +767,8 @@ vercel deploy
 | Call session (by PIN) | `ss:public-call:pin:{pin}` | 15 minutes |
 | Dispatch record (+ embedded review) | `ss:dispatch:{id}` | 48 hours |
 | Business phone → dispatch ID | `ss:dispatch:by-phone:{phone}` | 30 minutes |
+| Dispatch dedup (idempotency) | `ss:dispatch:dedup:{phone}:{callRef}` | 5 minutes |
+| Accept-lock (concurrent YES guard) | `ss:dispatch:accept-lock:{id}` | 60 seconds |
 | Pending claim | `ss:claim:{id}` | 15 minutes |
 | Claim dedup lock | `ss:claim:lock:{placeId}:{phone}` | 15 minutes |
 | SMS opt-out | `ss:sms:optout:{phone}` | permanent |
@@ -797,3 +799,5 @@ Redis keys are **intentionally compatible** with the main ServiceSurfer platform
 - **Stripe webhook payloads are HMAC-SHA256 verified** against the timestamp-prefixed body (Stripe's `t=<ts>.body` signing scheme) before any plan_slug mutation occurs.
 - **QStash publish/verify logic is centralised in `lib/qstash.ts`** — `scheduleDispatchTimeout()` and `scheduleReviewFollowup()` use deduplication IDs to prevent double-scheduling on handler retries.
 - **Consumer reviews are idempotent and state-gated.** `/api/review` enforces a one-review-per-dispatch guard (409 on duplicate) and only accepts submissions for dispatches in `accepted` or `review_sent` state — preventing reviews on expired or unaccepted leads. Redis TTL is preserved via `r.ttl()` rather than a stale derived timestamp.
+- **Dispatch is idempotent within a 5-minute window.** `POST /api/dispatch` checks a dedup key (`ss:dispatch:dedup:{phone}:{callRefPrefix}`) before creating a new dispatch record. Button double-taps and network retries return the existing `dispatchId` with `{ deduplicated: true }` instead of sending duplicate lead SMS messages to businesses. The key is scoped to consumerPhone × primary callRef so re-dispatching to a different business still works.
+- **Concurrent YES replies are serialised with an accept-lock.** When multiple businesses are notified simultaneously and two reply YES within milliseconds, `/api/webhooks/sms-inbound` uses a Redis `SET NX EX 60` on `ss:dispatch:accept-lock:{dispatchId}` to ensure only one acceptance proceeds. The loser receives a graceful TwiML reply; the 60-second TTL prevents lock-induced starvation if the winner crashes mid-flight.
