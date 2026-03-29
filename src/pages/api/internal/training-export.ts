@@ -47,11 +47,12 @@ const SYSTEM_PROMPT =
   'predict whether the business will ACCEPT, DECLINE, or TIMEOUT (no response within window).';
 
 /** Build the user-turn content from a training row. */
-function buildUserTurn(row: TrainingRow): string {
+function buildUserTurn(row: TrainingRow, urgencyTier: string | null): string {
   const parts: string[] = [];
   if (row.service_label)  parts.push(`Service: ${row.service_label}`);
   if (row.location_cell)  parts.push(`Location cell: ${row.location_cell}`);
   if (row.supply_level)   parts.push(`Supply level: ${row.supply_level}`);
+  if (urgencyTier)        parts.push(`Urgency: ${urgencyTier}`);
   parts.push(`Queue position: ${row.queue_position}`);
   if (row.window_seconds) parts.push(`Response window: ${row.window_seconds}s`);
   return parts.join('\n');
@@ -75,6 +76,11 @@ interface TrainingRow {
   response_ms:    number | null;
   queue_position: number;
   created_at:     string;
+}
+
+interface DispatchSentEvent {
+  dispatch_id: string;
+  meta:        { urgencyTier?: string; urgencyScore?: number } | null;
 }
 
 export const GET: APIRoute = async ({ url, request }) => {
@@ -130,11 +136,33 @@ export const GET: APIRoute = async ({ url, request }) => {
     return err('failed to load training events', 500);
   }
 
+  // ── Fetch urgency tiers from lead_events (dispatch_sent) ──────────────────
+  // Urgency is stored in the meta field of the dispatch_sent event so we can
+  // enrich the training examples with urgency context without schema changes.
+  const dispatchIds = [...new Set(data.map(r => r.dispatch_id))];
+  const urgencyMap = new Map<string, string>();
+
+  if (dispatchIds.length > 0) {
+    const { data: urgencyRows } = await sb
+      .from('lead_events')
+      .select('dispatch_id, meta')
+      .in('dispatch_id', dispatchIds)
+      .eq('event_type', 'dispatch_sent')
+      .limit(dispatchIds.length * 3)
+      .then(r => r, () => ({ data: null })) as { data: DispatchSentEvent[] | null };
+
+    for (const ev of urgencyRows ?? []) {
+      if (ev.meta?.urgencyTier && !urgencyMap.has(ev.dispatch_id)) {
+        urgencyMap.set(ev.dispatch_id, ev.meta.urgencyTier);
+      }
+    }
+  }
+
   // ── Build JSONL examples ───────────────────────────────────────────────────
   const examples = data.map(row => ({
     messages: [
       { role: 'system',    content: SYSTEM_PROMPT },
-      { role: 'user',      content: buildUserTurn(row) },
+      { role: 'user',      content: buildUserTurn(row, urgencyMap.get(row.dispatch_id) ?? null) },
       { role: 'assistant', content: outcomeLabel(row.outcome) },
     ],
   }));

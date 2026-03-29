@@ -1,9 +1,10 @@
 /**
  * POST /api/internal/dispatch-timeout
  *
- * QStash webhook — fires 5 minutes after a business is notified of a lead.
- * If the business has not replied YES, their queue entry is marked as timed out
- * and the dispatch advances to the next business in the queue.
+ * QStash webhook — fires after the supply-adaptive response window (20/45/90 s)
+ * expires for a notified business.  If the business has not replied YES, their
+ * queue entry is marked as timed out and the dispatch advances to the next
+ * business in the queue, which receives a fresh timeout of its own.
  *
  * This endpoint is internal-only: it is never called by the consumer frontend.
  * Requests are authorized with a DISPATCH_JOB_SECRET bearer token to prevent

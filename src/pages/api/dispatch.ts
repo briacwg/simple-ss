@@ -5,9 +5,9 @@
  * via Twilio SMS, scaling the outreach width to local supply conditions.
  *
  * Supply-adaptive window logic:
- *   high supply  (≥4 businesses in area) → notify top 1 pro only
- *   normal supply (2–3 businesses)       → notify top 2 pros simultaneously
- *   low supply   (0–1 businesses)        → notify all available pros
+ *   high supply  (≥20 businesses in area) → notify top 1 pro only   (20 s window)
+ *   normal supply (5–19 businesses)       → notify top 2 pros        (45 s window)
+ *   low supply   (<5 businesses)          → notify up to 3 pros      (90 s window)
  *
  * After notifying each batch, a 5-minute QStash timeout is queued per business.
  * If a business does not reply YES within that window, /api/internal/dispatch-timeout
@@ -182,11 +182,22 @@ export const POST: APIRoute = async ({ request }) => {
     }),
   ).then(r => r.filter((b): b is { phone: string; name: string } => b !== null));
 
-  // Full ranked queue: primary first, then fallback candidates
-  const rawBusinesses = [
+  // Full candidate list: primary first, then fallback candidates
+  let rawBusinesses = [
     { phone: primaryPhone, name: primaryName },
     ...additionalResolved,
   ];
+
+  // Filter out businesses that have opted out of SMS outreach (replied STOP).
+  // These businesses are permanently excluded until they re-subscribe (reply START).
+  if (r && rawBusinesses.length > 0) {
+    const optOutResults = await Promise.all(
+      rawBusinesses.map(b => r.get(`ss:sms:optout:${b.phone}`).catch(() => null)),
+    );
+    rawBusinesses = rawBusinesses.filter((_, i) => !optOutResults[i]);
+  }
+
+  if (rawBusinesses.length === 0) return err('no available businesses', 422);
 
   // Score lead urgency for enriched SMS messaging
   const urgency = scoreLeadUrgency(problem);

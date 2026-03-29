@@ -26,7 +26,7 @@ POST /api/call                          POST /api/dispatch (supply-adaptive)
   ├─ resolveCallRef() — HMAC verify       ├─ reRankByAcceptance() — 5-signal composite score
   ├─ createCallSession() — PIN + token    ├─ scoreLeadUrgency() — urgency prefix
   └─ returns telHref: tel:BRIDGE,PIN      ├─ notify 1–3 businesses simultaneously
-  │                                       ├─ QStash 5-min timeout per business
+  │                                       ├─ QStash dynamic timeout per business (20/45/90 s)
   ▼  user taps tel: link                  └─ QStash review follow-up (24 h)
 Twilio PSTN Bridge  ←→  /api/voice
   ├─ ?t=TOKEN  →  outbound bridge to business
@@ -118,7 +118,7 @@ POST /api/review
 ### Flow 2 — Supply-Adaptive Dispatch Loop
 
 1. `POST /api/dispatch` receives the consumer request + ranked business list.
-2. **`reRankByAcceptance()` (v3)** re-orders candidates using five signals:
+2. **`reRankByAcceptance()` (v4)** re-orders candidates using five signals (acceptance rates use Wilson score lower confidence bounds to prevent overconfidence on sparse data):
    - **Acceptance-rate multiplier** `[0.6→1.4]` — precision-weighted blend of specific (same service + location cell) and general acceptance rates fetched from `dispatch_training_events`.
    - **Review quality multiplier** `[0.85→1.15]` — average star rating from `lead_events`, applied once ≥ 3 reviews exist.
    - **Temporal multiplier** `[0.90→1.10]` — acceptance rate in the current 3-hour UTC bucket vs overall; boosts businesses active right now.
@@ -126,16 +126,16 @@ POST /api/review
    - **Google Places rank signal** `[0.0→0.3 contribution]` — preserves the original Places ranking as a tie-breaker when training data is sparse.
    - The four Supabase queries run in parallel with a 1.5 s timeout each; falls back to the original Google Places order if Supabase is unavailable.
 3. **Supply level** is computed from the number of available businesses:
-   - `high` (≥4): notify top 1 only — quality over quantity
-   - `normal` (2–3): notify top 2 simultaneously
-   - `low` (0–1): notify all available — widest net
-4. Each notified business receives an SMS: *"New lead … Reply YES to accept or NO to pass."*
-5. A 5-minute QStash timeout is scheduled per business (`/api/internal/dispatch-timeout`).
+   - `high` (≥20 pros): notify top 1 only — dense market, quality over quantity
+   - `normal` (5–19 pros): notify top 2 simultaneously
+   - `low` (<5 pros): notify up to 3 available — widest net in scarce market
+4. Each notified business receives an SMS: *"New lead … Reply YES to accept or NO to pass."* Opted-out businesses (prior STOP reply) are excluded from the queue entirely.
+5. A dynamic QStash timeout is scheduled per business: **20 s** (high supply), **45 s** (normal), **90 s** (low) — shorter windows in dense markets where consumers expect near-instant matching.
 6. When a business replies:
    - **YES** → `/api/webhooks/sms-inbound` locks the lead, creates a call session, SMS consumer the bridge + PIN.
    - **NO** → advances the queue to the next business.
    - **STOP** → opts the business out of future outreach.
-7. If no business responds within 5 minutes, the timeout auto-advances the queue.
+7. If no business responds within the window, the timeout auto-advances the queue to the next pro, scheduling a fresh timeout for them.
 8. If the queue is exhausted, the consumer receives an SMS to retry.
 9. 24 hours after dispatch, QStash fires `/api/jobs/review-followup` to request a consumer review.
 10. Consumer submits a review via `POST /api/review` → rating is stored in `lead_events` and feeds back into step 2 for future dispatches, closing the full feedback loop.

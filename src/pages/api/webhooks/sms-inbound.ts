@@ -34,6 +34,8 @@ import { redis, normalizePhone, createCallSession, bridgeNumber } from '../../..
 import { DK, BPDK, DISPATCH_TTL, type DispatchRecord, type QueuedBusiness } from '../dispatch';
 import { logTrainingEvent, logLeadEvent } from '../../../lib/supabase';
 import { sendSms, sendLeadSms as twilioSendLeadSms, sendConsumerAcceptedSms, sendConsumerSearchingSms } from '../../../lib/twilio';
+import { scoreLeadUrgency, urgencySmsPrefix } from '../../../lib/lead-score';
+import { scheduleDispatchTimeout } from '../../../lib/qstash';
 
 export const prerender = false;
 
@@ -270,10 +272,25 @@ export async function advanceQueue(
 
   await r.set(DK(record.dispatchId), JSON.stringify(updated), { ex: DISPATCH_TTL }).catch(() => null);
 
-  // Notify the next business
-  const smsSent = await twilioSendLeadSms(next.phone, next.name, record.problem, record.location).catch(() => false);
+  // Notify the next business (with urgency prefix, same as the initial dispatch)
+  const urgency = scoreLeadUrgency(record.problem);
+  const header  = urgencySmsPrefix(urgency, next.name);
+  const smsSent = await twilioSendLeadSms(next.phone, next.name, record.problem, record.location, header).catch(() => false);
   if (smsSent) {
     await r.set(BPDK(next.phone), record.dispatchId, { ex: 60 * 30 }).catch(() => null);
+
+    // Schedule the same supply-adaptive timeout window for the newly notified business
+    const siteUrl   = import.meta.env.PUBLIC_SITE_URL;
+    const jobSecret = import.meta.env.DISPATCH_JOB_SECRET ?? '';
+    if (siteUrl) {
+      await scheduleDispatchTimeout(
+        record.dispatchId,
+        next.phone,
+        record.windowSeconds,
+        siteUrl,
+        jobSecret,
+      ).catch(() => null);
+    }
   }
 }
 

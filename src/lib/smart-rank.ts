@@ -5,16 +5,19 @@
  * and response-time measurement is fed back here to improve queue ordering
  * for future similar leads.
  *
- * Ranking algorithm (v3)
+ * Ranking algorithm (v4)
  * ──────────────────────
  * Five signals are blended for each candidate:
  *
  * 1. Acceptance-rate multiplier  [0.6 → 1.4]
  *    Two acceptance-rate signals — one specific (same service + location cell) and
- *    one general (any lead for this business) — are precision-weighted:
+ *    one general (any lead for this business) — are precision-weighted using the
+ *    Wilson score lower confidence bound (z = 1.96, 95% CI).  The Wilson bound
+ *    is conservative for small sample sizes (e.g. 1/1 → ~0.21, not 1.0) and
+ *    converges to the observed rate as n grows, preventing overconfidence on sparse data.
  *
- *      specificRate  = accepted / total  for phone + service_label + location_cell
- *      generalRate   = accepted / total  for phone (all labels / locations)
+ *      specificRate  = wilsonLower(accepted, total)  for phone + service_label + location_cell
+ *      generalRate   = wilsonLower(accepted, total)  for phone (all labels / locations)
  *      blendedRate   = (specificRate × specificWeight + generalRate × generalWeight)
  *                       / (specificWeight + generalWeight)
  *
@@ -31,12 +34,12 @@
  *      reviewMultiplier = 0.85 + reviewNorm × 0.30
  *
  * 3. Temporal (hour-of-day) multiplier  [0.90 → 1.10]
- *    Compares a business's acceptance rate in the current 3-hour window vs its
- *    overall rate.  A business that historically ignores leads at 2 AM but
- *    reliably accepts them at 9 AM gets a temporal boost during business hours.
+ *    Compares a business's Wilson-score acceptance rate in the current 3-hour
+ *    window.  A business that historically ignores leads at 2 AM but reliably
+ *    accepts them at 9 AM gets a temporal boost during business hours.
  *    Requires ≥ 3 events in the current bucket before applying; neutral otherwise.
  *
- *      bucketRate       = accepted / total  for UTC hour bucket ⌊h/3⌋
+ *      bucketRate       = wilsonLower(accepted, total)  for UTC hour bucket ⌊h/3⌋
  *      temporalAdj      = (bucketRate − 0.5) × 0.20   ∈ [−0.10, +0.10]
  *      temporalMultiplier = 1.0 + temporalAdj
  *
@@ -106,6 +109,33 @@ interface ReviewRow {
   meta:           { rating?: number } | null;
 }
 
+// ── Wilson score lower confidence bound ──────────────────────────────────────
+
+/**
+ * Wilson score lower confidence bound for a proportion.
+ *
+ * Returns a conservative estimate of the true acceptance rate that accounts for
+ * sample size.  Preferable to a simple ratio because:
+ *   - 1/1   → ~0.21 (not 1.0 — one data point shouldn't dominate)
+ *   - 10/10 → ~0.72 (still conservative with small-but-clean data)
+ *   - 80/100 → ~0.71 (converges toward the observed rate as n grows)
+ *   - 0/10  → ~0.00 (rightly pessimistic about consistent non-responders)
+ *
+ * @param successes  Number of accepted outcomes.
+ * @param total      Total dispatches observed.
+ * @param z          z-score for the desired confidence level (1.96 = 95% CI).
+ */
+function wilsonLower(successes: number, total: number, z = 1.96): number {
+  if (total === 0) return 0.5; // neutral — no data
+  const p  = successes / total;
+  const z2 = z * z;
+  const n  = total;
+  return (
+    (p + z2 / (2 * n) - z * Math.sqrt((p * (1 - p) + z2 / (4 * n)) / n)) /
+    (1 + z2 / n)
+  );
+}
+
 // ── Temporal helpers ──────────────────────────────────────────────────────────
 
 /** Returns the 3-hour bucket index (0–7) for a given UTC date. */
@@ -116,7 +146,7 @@ function hourBucket(date: Date): number {
 /** Cache key includes the current 3-hour window so stale temporal data expires. */
 const cacheKey = (phones: string[], label: string | null, cell: string | null) => {
   const bucket = hourBucket(new Date());
-  return `ss:smart-rank:v3:b${bucket}:${label ?? '_'}:${cell ?? '_'}:${phones.slice().sort().join(',')}`;
+  return `ss:smart-rank:v4:b${bucket}:${label ?? '_'}:${cell ?? '_'}:${phones.slice().sort().join(',')}`;
 };
 
 // ── Cache TTL — 3 min so temporal signal stays fresh within the hour bucket ──
@@ -254,13 +284,15 @@ export async function reRankByAcceptance(
     const general  = generalStats.get(b.phone);
 
     // 1. Acceptance-rate multiplier [0.6, 1.4]
+    //    Uses Wilson score lower bounds so sparse data (e.g. 1/1) does not
+    //    crowd out businesses with proven track records (e.g. 18/20).
     let blendedRate: number;
     if (!specific && !general) {
       blendedRate = 0.5; // neutral for new businesses
     } else {
-      const specificRate   = specific ? specific.accepted / specific.total : 0.5;
+      const specificRate   = specific ? wilsonLower(specific.accepted, specific.total) : 0.5;
       const specificWeight = specific ? Math.min(specific.total, 20) : 0;
-      const generalRate    = general  ? general.accepted  / general.total  : 0.5;
+      const generalRate    = general  ? wilsonLower(general.accepted,  general.total)  : 0.5;
       const generalWeight  = general  ? Math.min(general.total,  10) : 0;
       const totalWeight    = specificWeight + generalWeight;
       blendedRate = totalWeight > 0
@@ -276,9 +308,10 @@ export async function reRankByAcceptance(
       : 1.0;
 
     // 3. Temporal (hour-of-day) multiplier [0.90, 1.10] — requires ≥ 3 events in bucket
+    //    Uses Wilson lower bound to avoid over-boosting businesses with 3/3 in this bucket.
     const temporal = temporalStats.get(b.phone);
     const temporalMultiplier = temporal && temporal.total >= 3
-      ? 1.0 + (temporal.accepted / temporal.total - 0.5) * 0.20
+      ? 1.0 + (wilsonLower(temporal.accepted, temporal.total) - 0.5) * 0.20
       : 1.0;
 
     // 4. Response-time multiplier [0.95, 1.05] — faster responders get mild boost
