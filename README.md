@@ -182,7 +182,7 @@ POST /api/review
 4. Layer 3 async: each card with a website fires `POST /api/summarize` after render — "Loading business info…" placeholders are replaced with the AI summary on resolve.
 5. Each card exposes three actions: **Call now** (→ Flow 1 call bridge), **Video** (→ Flow 3), and **Website** / **Directions** links.
 
-### Flow 10 — Stripe Subscription Upgrade
+### Flow 9 — Stripe Subscription Upgrade
 
 1. Authenticated business owner triggers an upgrade from `/business/dashboard` → `POST /api/stripe/checkout?plan=pro`.
 2. Server creates a Stripe Checkout Session (subscription mode) with `business_phone` and `plan_slug` in subscription metadata.
@@ -191,7 +191,7 @@ POST /api/review
 5. Subsequent `customer.subscription.updated` / `customer.subscription.deleted` events keep the plan in sync.
 6. Webhook signature is verified via HMAC-SHA256 against `STRIPE_WEBHOOK_SECRET` (Stripe timestamp-prefixed payload).
 
-### Flow 11 — Consumer Review Submission
+### Flow 10 — Consumer Review Submission
 
 1. 24 hours after a business accepts a lead, QStash fires `/api/jobs/review-followup`.
 2. The job loads the dispatch record from Redis and sends a review-request SMS to the consumer with a link containing the `dispatchId`.
@@ -201,7 +201,7 @@ POST /api/review
 
 ---
 
-### Flow 9 — Business Portal
+### Flow 11 — Business Portal
 
 1. Business owner navigates to `/business` — a passkey sign-in / register page.
 2. **Sign in**: triggers a discoverable credential WebAuthn assertion (no username needed), verifies via `/api/business/passkeys/authenticate/finish`, stores the 24h session token in `sessionStorage`.
