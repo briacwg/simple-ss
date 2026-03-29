@@ -174,16 +174,13 @@ POST /api/review
 3. On cache miss / stale: live-queries `lead_events` + `dispatch_training_events` from Supabase, upserts fresh metrics.
 4. Metrics include: leads received, calls, dispatches, acceptance rate, avg response time, top service categories.
 
-### Flow 8 — Consumer Dispatch Request (UI)
+### Flow 8 — Consumer Results UI
 
 1. Consumer views ranked business cards on `/` after a search.
-2. The **Send request** button on each card calls `POST /api/dispatch`, passing the primary business `callRef`, all other businesses as `additionalBusinesses`, lat/lng, and service label.
-3. Consumer phone is prompted once and cached in `sessionStorage` for subsequent requests.
-4. On success (`dispatchId` returned) the button transitions to a "Request sent!" confirmed state.
-5. Cards show urgency styling (`.scard--urgent`, `.scard--critical`) based on `urgencyTier` from the match response.
-6. An `aiSummary` bar replaces the plain category heading when Cerebras inference is available.
-7. A `diagnosisHint` callout (red / amber / blue) surfaces the likely issue cause below the results.
-8. Layer 3 async: each card with a website fires `POST /api/summarize` after render — "Loading business info…" placeholders are replaced with the AI summary on resolve.
+2. An `aiSummary` bar replaces the plain category heading when Cerebras inference is available.
+3. A `diagnosisHint` callout (red / amber / blue) surfaces the likely issue cause below the results.
+4. Layer 3 async: each card with a website fires `POST /api/summarize` after render — "Loading business info…" placeholders are replaced with the AI summary on resolve.
+5. Each card exposes three actions: **Call now** (→ Flow 1 call bridge), **Video** (→ Flow 3), and **Website** / **Directions** links.
 
 ### Flow 10 — Stripe Subscription Upgrade
 
