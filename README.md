@@ -182,9 +182,27 @@ Find businesses matching a service request.
       "distance": "1.4 mi"
     }
   ],
-  "label": "HVAC technicians"
+  "label": "HVAC technicians",
+  "intentQuery": "HVAC technician",
+  "aiSummary": "Needs HVAC repair for a broken AC unit.",
+  "diagnosisHint": {
+    "diagnosisLabel": "Cooling system failure detected",
+    "likelyCauses": "Likely: refrigerant, compressor, or capacitor"
+  },
+  "urgencyTier": "high",
+  "urgencyScore": 75
 }
 ```
+
+| Response field | Source | Description |
+|---|---|---|
+| `businesses` | Google Places + HMAC signing | Ranked business list |
+| `label` | Cerebras → Layer 1 fallback | Human-readable category heading |
+| `intentQuery` | Layer 1 deterministic | Canonical category (e.g. `"plumber"`) |
+| `aiSummary` | Cerebras | One-sentence description of the consumer's need |
+| `diagnosisHint` | Layer 1 `inferDiagnosisHint()` | Issue label + likely cause for UI callout |
+| `urgencyTier` | `scoreLeadUrgency()` | `critical` / `high` / `medium` / `low` |
+| `urgencyScore` | `scoreLeadUrgency()` | 0–100 numeric urgency score |
 
 ---
 
@@ -385,6 +403,31 @@ Step 2 — verifies assertion, bumps counter, returns signed session token.
 
 ---
 
+### `POST /api/business/passkeys/refresh`
+Silently extends a valid session without re-authentication.
+
+**Headers:** `Authorization: Bearer <session-token>`
+**Response:** `{ "token": "<new-token>", "userId": "uuid", "expiresAt": 1740000000 }`
+
+---
+
+### `GET /api/business/passkeys/list`
+Lists all registered passkeys for the authenticated user.
+
+**Headers:** `Authorization: Bearer <session-token>`
+**Response:** `{ "passkeys": [{ "credentialId", "friendlyName", "deviceType", "backedUp", "lastUsedAt", "createdAt" }] }`
+
+---
+
+### `DELETE /api/business/passkeys/revoke`
+Revokes a specific passkey. Rejects with `409` if it would remove the last credential.
+
+**Headers:** `Authorization: Bearer <session-token>`
+**Request body:** `{ "credentialId": "abc..." }`
+**Response:** `{ "revoked": true, "credentialId": "abc..." }`
+
+---
+
 ### `POST /api/claim`
 Initiate a business ownership claim.
 
@@ -538,6 +581,9 @@ vercel deploy
 | Claim dedup lock | `ss:claim:lock:{placeId}:{phone}` | 15 minutes |
 | SMS opt-out | `ss:sms:optout:{phone}` | permanent |
 | AI Workspace rate limit | `ss:workspace:rl:{phone}` | 1 hour (sliding window) |
+| Smart-rank acceptance rates | `ss:smart-rank:v1:{label}:{cell}:{phones}` | 10 minutes |
+| Website summary | `sr:place:v1:{placeId}:website_summary:{hex12}` | 30 days |
+| Summarize rate limit | `ss:summarize:rl:{ip}` | 60 seconds (sliding window) |
 
 Redis keys are **intentionally compatible** with the main ServiceSurfer platform so sessions and smart-match results are shared across both apps.
 
