@@ -1,0 +1,28 @@
+import type { APIRoute } from 'astro';
+
+export const prerender = false;
+
+const VIDEO_BASE = import.meta.env.VIDEO_APP_URL || 'https://video.servicesurfer.app';
+
+export const POST: APIRoute = async ({ request }) => {
+  const { problem = '', location = '', businessName = '' } = await request.json().catch(() => ({}));
+
+  const res = await fetch(`${VIDEO_BASE}/api/video/create-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      callSessionId: `ss_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      problem: String(problem).slice(0, 180) || 'Need help with a local service issue',
+      location: String(location).slice(0, 120) || undefined,
+      voiceContext: { source: 'simple-ss', businessName: String(businessName).slice(0, 180) || undefined },
+    }),
+  }).catch(() => null);
+
+  if (!res?.ok) return json({ error: 'video unavailable' }, 502);
+  const data = await res.json().catch(() => null);
+  if (!data?.link) return json({ error: 'video unavailable' }, 502);
+
+  return json({ sessionUrl: data.link });
+};
+
+const json = (d: unknown, s = 200) => new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } });

@@ -1,0 +1,59 @@
+---
+import { getCallSession, bridgeNumber } from '../../lib';
+
+export const prerender = false;
+
+const token = String(Astro.params.token || '').trim();
+const session = token ? await getCallSession(token) : null;
+const expired = !session || Date.now() > session.expiresAt;
+const dial = bridgeNumber().replace(/[^\d+]/g, '');
+const pin = session?.pin || '';
+const telHref = !expired && dial && pin ? `tel:${dial},${pin}` : '/';
+const name = session?.businessName || 'the business';
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Call via ServiceSurfer</title>
+  <style>
+    :root { font-family: ui-sans-serif, system-ui, sans-serif; background: #f3efe6; color: #15231f; color-scheme: light; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { min-height: 100svh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top, rgba(209,167,93,.18), transparent 40%), linear-gradient(180deg,#faf6ef,#efe5d4); }
+    .card { width: min(100%, 480px); padding: 32px 28px; border-radius: 24px; background: rgba(255,251,244,.92); border: 1px solid rgba(21,35,31,.08); box-shadow: 0 18px 48px rgba(21,35,31,.12); }
+    .badge { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: rgba(209,167,93,.16); font-size: 13px; font-weight: 700; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #cf8a1f; animation: pulse 1.4s ease infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    h1 { margin: 16px 0 10px; font-size: clamp(26px,5vw,38px); line-height: 1.1; }
+    p { margin: 0 0 16px; font-size: 16px; line-height: 1.55; color: rgba(21,35,31,.75); }
+    .btn { display: flex; align-items: center; justify-content: center; min-height: 52px; padding: 0 20px; border-radius: 14px; text-decoration: none; font-weight: 700; font-size: 16px; }
+    .primary { background: #15231f; color: #fff9f0; margin-bottom: 10px; }
+    .secondary { background: transparent; color: #15231f; border: 1px solid rgba(21,35,31,.14); }
+    .meta { margin-top: 16px; font-size: 12px; color: rgba(21,35,31,.45); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge"><span class="dot"></span>ServiceSurfer</div>
+    {expired ? (
+      <>
+        <h1>Link expired</h1>
+        <p>This call window closed. Go back and tap Call again to get a fresh link.</p>
+        <a class="btn primary" href="/">Back to search</a>
+      </>
+    ) : (
+      <>
+        <h1>{name}</h1>
+        <p>Your call routes securely through ServiceSurfer. If your phone doesn't open automatically, tap the button below.</p>
+        <a class="btn primary" href={telHref}>Call {name}</a>
+        <a class="btn secondary" href="/">Back to results</a>
+        <p class="meta">Secure bridge · expires in 15 min</p>
+        <script is:inline define:vars={{ telHref }}>
+          setTimeout(() => { if (!window.__ssDial) { window.__ssDial = true; window.location.href = telHref; } }, 150);
+        </script>
+      </>
+    )}
+  </div>
+</body>
+</html>

@@ -1,0 +1,453 @@
+---
+export const prerender = false;
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>ServiceSurfer — Find Local Pros Instantly</title>
+  <meta name="description" content="Describe your problem. We'll find who can fix it." />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+  <style>
+    :root {
+      --bg-primary: #ffffff; --bg-secondary: #f9fafb;
+      --text-primary: #111827; --text-secondary: #374151;
+      --text-tertiary: #6b7280; --text-muted: #9ca3af;
+      --border-color: #e5e7eb; --accent-blue: #0096FF;
+      --shadow-sm: rgba(0,0,0,.05); --shadow-md: rgba(0,0,0,.1);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-primary: #111827; --bg-secondary: #1f2937;
+        --text-primary: #f9fafb; --text-secondary: #e5e7eb;
+        --text-tertiary: #d1d5db; --text-muted: #9ca3af;
+        --border-color: #374151; --accent-blue: #0096FF;
+        --shadow-sm: rgba(0,0,0,.3); --shadow-md: rgba(0,0,0,.5);
+      }
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+    body {
+      min-height: 100svh; color: var(--text-primary);
+      background: radial-gradient(circle at 0% 0%, rgba(37,99,235,.12), transparent 50%), var(--bg-primary);
+    }
+
+    .page { display: flex; flex-direction: column; align-items: center; padding: 2.5rem 1rem 6rem; width: 100%; }
+    .hero { width: min(100%, 560px); display: flex; flex-direction: column; align-items: center; }
+
+    /* Logo */
+    .logo {
+      display: flex; align-items: center; justify-content: center; gap: .3rem;
+      font-size: 44px; font-weight: 700; color: var(--text-primary);
+      text-decoration: none; margin-bottom: .5rem;
+    }
+    @media (max-width: 768px) { .logo { font-size: 34px; } }
+    .logo-icon { height: 70px; width: auto; display: inline-block; vertical-align: middle; }
+    @media (max-width: 768px) { .logo-icon { height: 52px; } }
+    .logo-text { display: flex; flex-direction: row; align-items: center; }
+    .logo-thin { font-weight: 400; }
+    .trust-signal { font-size: 1rem; color: var(--text-tertiary); margin-bottom: 1.5rem; text-align: center; }
+
+    /* Search shell */
+    .search-shell {
+      width: 100%; border: 2px solid var(--border-color); border-radius: 1.4rem;
+      overflow: hidden; background: var(--bg-primary); box-shadow: 0 8px 32px var(--shadow-sm);
+      transition: box-shadow .2s, border-color .2s;
+    }
+    .search-shell:focus-within {
+      border-color: color-mix(in oklab, var(--accent-blue) 48%, var(--border-color));
+      box-shadow: 0 12px 40px var(--shadow-md);
+    }
+    .search-input-row { position: relative; display: flex; align-items: center; }
+    .search-icon-wrap { position:absolute; left:1rem; color:var(--text-muted); pointer-events:none; display:flex; align-items:center; }
+    .search-icon { width:1.2rem; height:1.2rem; }
+    .search-input {
+      width:100%; min-height:3.6rem; padding:.85rem 3.6rem .85rem 2.9rem;
+      font-size:1.05rem; font-family:inherit; color:var(--text-primary);
+      background:transparent; border:0; outline:none; appearance:none;
+    }
+    .search-input::placeholder { color:var(--text-muted); }
+    .search-send {
+      position:absolute; right:.55rem;
+      display:inline-flex; align-items:center; justify-content:center;
+      width:2.4rem; height:2.4rem; border-radius:50%;
+      background:var(--accent-blue); color:white; border:0; cursor:pointer;
+      transition: background .15s, transform .15s;
+    }
+    .search-send:hover { background:color-mix(in oklab,var(--accent-blue) 82%,var(--text-primary)); transform:scale(1.05); }
+    .search-send svg { width:1.1rem; height:1.1rem; }
+
+    /* Quick actions — Call & Video below search bar */
+    .quick-actions {
+      display: flex; gap: .6rem; margin-top: .75rem; width: 100%;
+    }
+    .qa-btn {
+      flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: .45rem;
+      padding: .65rem 1rem; border-radius: 12px; font-size: .92rem; font-weight: 700;
+      font-family: inherit; cursor: pointer; border: none; text-decoration: none;
+      transition: transform .15s, background .15s;
+    }
+    .qa-btn:hover { transform: translateY(-1px); }
+    .qa-btn--call {
+      background: linear-gradient(135deg,#fbbf24,#f59e0b); color: #111827;
+      border: 1px solid color-mix(in oklab,#f59e0b 70%,#111827);
+      box-shadow: 0 8px 20px rgba(245,158,11,.2);
+    }
+    .qa-btn--call:hover { background: linear-gradient(135deg,#facc15,#f59e0b); }
+    .qa-btn--video {
+      background: var(--accent-blue); color: white;
+      border: 1px solid color-mix(in oklab,var(--accent-blue) 78%,var(--text-primary));
+      box-shadow: 0 8px 20px rgba(0,150,255,.18);
+    }
+    .qa-btn--video:hover { background: color-mix(in oklab,var(--accent-blue) 82%,var(--text-primary)); }
+
+    /* Trending pills */
+    .trending { width:min(100%,560px); margin:1.6rem auto 0; }
+    .trending-label { font-size:.95rem; font-weight:600; color:var(--text-tertiary); margin-bottom:.8rem; }
+    .trending-label .loc { color:var(--accent-blue); font-weight:700; }
+    .pills { display:flex; flex-wrap:wrap; gap:.5rem; }
+    .pill {
+      display:inline-flex; align-items:center; padding:.42rem .88rem; border-radius:999px;
+      border:1px solid var(--border-color); background:var(--bg-secondary);
+      color:var(--text-secondary); font-size:.88rem; font-weight:600;
+      cursor:pointer; transition:background .15s,color .15s,border-color .15s;
+      font-family:inherit; text-decoration:none;
+    }
+    .pill:hover { background:var(--bg-primary); color:var(--text-primary); border-color:var(--text-muted); }
+
+    /* Results section */
+    .results-section { width:min(100%,560px); margin:2rem auto 0; padding-bottom: 2rem; }
+    .qi-bar {
+      padding:.65rem 1rem; border-radius:.9rem; margin-bottom:1rem;
+      border:1px solid color-mix(in oklab,var(--accent-blue) 22%,var(--border-color));
+      background:color-mix(in oklab,var(--accent-blue) 6%,var(--bg-primary));
+      font-size:.88rem; color:var(--text-secondary); font-weight: 500;
+    }
+    .qi-bar b { color:var(--accent-blue); font-weight:700; }
+
+    /* Spinner */
+    .spinner-wrap { display:flex; flex-direction:column; align-items:center; gap:.7rem; padding:3rem 0; }
+    .spinner { width:2.2rem; height:2.2rem; border:3px solid var(--border-color); border-top-color:var(--accent-blue); border-radius:50%; animation:spin .65s linear infinite; }
+    .spinner-text { font-size:.95rem; color:var(--text-tertiary); font-weight:600; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    /* Empty state */
+    .empty { text-align:center; padding:3rem 0; }
+    .empty h3 { font-size:1.1rem; font-weight:700; margin-bottom:.4rem; }
+    .empty p { color:var(--text-tertiary); font-size:.95rem; }
+  </style>
+
+  <style is:global>
+    .decision-deck { display:flex; flex-direction:column; gap:.9rem; }
+    .decision-deck + .decision-deck { margin-top:.9rem; }
+
+    .scard {
+      position:relative; display:flex; overflow:hidden;
+      padding:1.1rem; border-radius:20px;
+      border:1px solid color-mix(in oklab,var(--border-color) 86%,rgba(15,23,42,.1));
+      background:linear-gradient(180deg,
+        color-mix(in oklab,var(--bg-primary) 96%,var(--text-primary) 4%) 0%,
+        color-mix(in oklab,var(--bg-primary) 62%,var(--bg-secondary) 38%) 100%);
+      box-shadow:0 14px 34px var(--shadow-sm);
+      transition:transform .22s,box-shadow .22s,border-color .22s;
+    }
+    .scard::before {
+      content:''; position:absolute; inset:0; pointer-events:none; opacity:0;
+      background:linear-gradient(140deg,rgba(14,165,233,.06),transparent 45%,rgba(37,99,235,.03));
+      transition:opacity .22s;
+    }
+    .scard:hover { transform:translateY(-3px); box-shadow:0 22px 44px var(--shadow-md); border-color:color-mix(in oklab,var(--accent-blue) 24%,var(--border-color)); }
+    .scard:hover::before { opacity:1; }
+    .scard--spotlight { border-color:color-mix(in oklab,#f59e0b 42%,var(--border-color)); }
+    .scard--spotlight::before { opacity:.28; }
+
+    .scard-inner { display:flex; flex-direction:column; gap:.8rem; flex:1; position:relative; z-index:1; }
+    .scard-top { display:flex; flex-wrap:wrap; align-items:center; gap:.45rem; }
+
+    .rank-chip {
+      display:inline-flex; align-items:center; justify-content:center;
+      padding:.32rem .62rem; border-radius:999px; font-size:.73rem; font-weight:800;
+      letter-spacing:.04em; text-transform:uppercase;
+      background:color-mix(in oklab,var(--accent-blue) 12%,var(--bg-primary));
+      border:1px solid color-mix(in oklab,var(--accent-blue) 28%,var(--border-color));
+      color:color-mix(in oklab,var(--accent-blue) 72%,var(--text-primary));
+    }
+    .rank-chip--best {
+      padding:.34rem .78rem; font-size:.78rem; text-transform:none; letter-spacing:.01em;
+      color:#fef3c7;
+      background:linear-gradient(135deg,rgba(251,191,36,.26),rgba(245,158,11,.14));
+      border-color:color-mix(in oklab,#f59e0b 55%,var(--border-color));
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.22);
+    }
+    .open-badge {
+      display:inline-flex; align-items:center; gap:.3rem;
+      padding:.22rem .55rem; border-radius:999px; font-size:.72rem; font-weight:700;
+    }
+    .open-badge--open { background:rgba(22,163,74,.1); color:#15803d; border:1px solid rgba(22,163,74,.25); }
+    .open-badge--closed { background:rgba(220,38,38,.08); color:#b91c1c; border:1px solid rgba(220,38,38,.2); }
+
+    .scard-name { margin:0; font-size:clamp(1.1rem,2vw,1.3rem); line-height:1.25; font-weight:800; letter-spacing:-.02em; color:var(--text-primary); }
+    .scard-proof { display:flex; align-items:center; flex-wrap:wrap; gap:.35rem; font-size:.9rem; font-weight:600; color:var(--text-secondary); }
+    .stars { color:#f59e0b; }
+    .scard-addr { font-size:.84rem; color:var(--text-tertiary); line-height:1.45; }
+
+    .scard-actions {
+      display:flex; flex-direction:column; gap:.6rem; margin-top:auto;
+      padding-top:.9rem; border-top:1px solid color-mix(in oklab,var(--border-color) 82%,var(--accent-blue) 18%);
+    }
+    .scard-actions-row { display:flex; flex-wrap:wrap; gap:.55rem; }
+    .scard-actions-row .action-btn { flex:1 1 0; }
+
+    .action-btn {
+      display:inline-flex; align-items:center; justify-content:center; gap:.45rem;
+      width:100%; padding:.75rem 1rem; border-radius:12px; font-size:.88rem; font-weight:700;
+      font-family:inherit; text-decoration:none; border:none; cursor:pointer;
+      transition:transform .16s,background .16s,border-color .16s,color .16s;
+    }
+    .action-btn:hover { transform:translateY(-1px); }
+    .action-btn:disabled { opacity:.5; pointer-events:none; cursor:default; }
+
+    .action-btn--call {
+      background:linear-gradient(135deg,#fbbf24,#f59e0b); color:#111827;
+      border:1px solid color-mix(in oklab,#f59e0b 70%,var(--text-primary));
+      box-shadow:0 10px 22px rgba(245,158,11,.2);
+    }
+    .action-btn--call:hover { background:linear-gradient(135deg,#facc15,#f59e0b); }
+    .action-btn--video { background:var(--accent-blue); color:white; border:1px solid color-mix(in oklab,var(--accent-blue) 78%,var(--text-primary)); }
+    .action-btn--video:hover { background:color-mix(in oklab,var(--accent-blue) 82%,var(--text-primary)); }
+    .action-btn--web {
+      background:color-mix(in oklab,var(--bg-primary) 82%,var(--bg-secondary));
+      color:var(--accent-blue); border:1px solid color-mix(in oklab,var(--accent-blue) 36%,var(--border-color));
+    }
+    .action-btn--web:hover { background:color-mix(in oklab,var(--accent-blue) 8%,var(--bg-primary)); }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <div class="hero">
+    <a href="/" class="logo">
+      <img src="/logo.svg" alt="ServiceSurfer Icon" class="logo-icon" />
+      <div class="logo-text"><span class="logo-thin">Service</span>Surfer</div>
+    </a>
+    <p class="trust-signal">Describe your problem. We'll find who can fix it.</p>
+
+    <div class="search-shell">
+      <div class="search-input-row">
+        <div class="search-icon-wrap">
+          <svg class="search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        </div>
+        <input type="text" class="search-input" id="search-input" placeholder="Describe the problem (e.g. my sink is leaking)" autocomplete="off" />
+        <button type="button" class="search-send" id="send-btn" aria-label="Search">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Call & Video below search bar -->
+    <div class="quick-actions">
+      <a href="tel:4013862975" class="qa-btn qa-btn--call">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 1.27h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.91a16 16 0 0 0 6.29 6.29l1.42-1.42a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        Call ServiceSurfer
+      </a>
+      <button class="qa-btn qa-btn--video" id="global-video" type="button">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        Video Consult
+      </button>
+    </div>
+  </div>
+
+  <!-- Trending pills -->
+  <div class="trending">
+    <p class="trending-label">Popular near <span class="loc" id="loc-label">your area</span></p>
+    <div class="pills">
+      <button class="pill" data-q="plumber near me">Plumber</button>
+      <button class="pill" data-q="HVAC repair air conditioning">HVAC</button>
+      <button class="pill" data-q="electrician electrical repair">Electrician</button>
+      <button class="pill" data-q="auto repair mechanic">Auto repair</button>
+      <button class="pill" data-q="house cleaning maid service">House cleaning</button>
+      <button class="pill" data-q="landscaping lawn care">Landscaping</button>
+      <button class="pill" data-q="handyman home repair">Handyman</button>
+      <button class="pill" data-q="pest control exterminator">Pest control</button>
+      <button class="pill" data-q="roof repair roofing">Roof repair</button>
+      <button class="pill" data-q="moving company movers">Moving service</button>
+    </div>
+  </div>
+
+  <!-- Results inline below pills -->
+  <div class="results-section" id="results"></div>
+
+</div>
+
+<script>
+  let lat = 36.1627, lng = -86.7816, lastQuery = '';
+
+  // Geolocation — show "City, ST"
+  const locLabel = document.getElementById('loc-label');
+  function setLoc(la, lo, city, state) {
+    lat = la; lng = lo;
+    if (locLabel) {
+      const parts = [city, state].filter(Boolean);
+      if (parts.length) locLabel.textContent = parts.join(', ');
+    }
+  }
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        lat = pos.coords.latitude; lng = pos.coords.longitude;
+        fetch(`/api/get-location?lat=${lat}&lon=${lng}`)
+          .then(r => r.json()).then(d => {
+            setLoc(lat, lng, d?.location?.city, d?.location?.state);
+          }).catch(() => null);
+      },
+      () => fetch('/api/get-location').then(r => r.json()).then(d => {
+        if (d?.location?.lat) setLoc(d.location.lat, d.location.lon, d.location.city, d.location.state);
+      }).catch(() => null),
+      { timeout: 4000, maximumAge: 300000 }
+    );
+  } else {
+    fetch('/api/get-location').then(r => r.json()).then(d => {
+      if (d?.location?.lat) setLoc(d.location.lat, d.location.lon, d.location.city, d.location.state);
+    }).catch(() => null);
+  }
+
+  const input = document.getElementById('search-input');
+  const sendBtn = document.getElementById('send-btn');
+  const resultsEl = document.getElementById('results');
+
+  // Registry avoids double-quote collisions in onclick attributes
+  let registry = [];
+
+  let imTimer;
+  sendBtn.addEventListener('click', () => { clearTimeout(imTimer); search(input.value.trim()); });
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { clearTimeout(imTimer); search(input.value.trim()); } });
+
+  // Instant match — debounced 500ms while typing
+  input.addEventListener('input', () => {
+    clearTimeout(imTimer);
+    const q = input.value.trim();
+    if (q.length < 4) return;
+    imTimer = setTimeout(() => search(q), 500);
+  });
+
+  document.querySelectorAll('.pill').forEach(p => p.addEventListener('click', () => search(p.dataset.q)));
+  document.getElementById('global-video')?.addEventListener('click', () => doVideo('', lastQuery, null));
+
+  function search(query) {
+    if (!query.trim()) return;
+    lastQuery = query;
+    input.value = query;
+    sendBtn.disabled = true;
+    resultsEl.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><p class="spinner-text">Finding the best matches…</p></div>`;
+    resultsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    fetch('/api/match', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, lat, lng }),
+    })
+      .then(r => r.json())
+      .then(({ businesses, label }) => {
+        sendBtn.disabled = false;
+        if (!businesses?.length) {
+          resultsEl.innerHTML = `<div class="empty"><h3>No pros found nearby</h3><p>Try a different description or broader terms.</p></div>`;
+          return;
+        }
+        registry = businesses;
+        const lbl = label ? label.charAt(0).toUpperCase() + label.slice(1) : '';
+        const locText = locLabel?.textContent && locLabel.textContent !== 'your area' ? ` near ${locLabel.textContent}` : ' nearby';
+        resultsEl.innerHTML = `
+          ${lbl ? `<div class="qi-bar"><b>${businesses.length} ${lbl}</b> open${locText}</div>` : ''}
+          <div class="decision-deck">${businesses.map((b, i) => card(b, i)).join('')}</div>
+        `;
+        resultsEl.querySelectorAll('[data-call-idx]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const b = registry[+btn.dataset.callIdx];
+            if (b) doCall(b.callRef, b.name, btn);
+          });
+        });
+        resultsEl.querySelectorAll('[data-video-idx]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const b = registry[+btn.dataset.videoIdx];
+            if (b) doVideo(b.name, lastQuery, btn);
+          });
+        });
+      })
+      .catch(() => {
+        sendBtn.disabled = false;
+        resultsEl.innerHTML = `<div class="empty"><h3>Something went wrong</h3><p>Please try again in a moment.</p></div>`;
+      });
+  }
+
+  function card(b, rank) {
+    const isBest = rank === 0;
+    const rankHtml = isBest
+      ? `<span class="rank-chip rank-chip--best">⭐ Best Match</span>`
+      : `<span class="rank-chip">#${rank + 1}</span>`;
+    const openHtml = b.openNow === true
+      ? `<span class="open-badge open-badge--open"><i class="bi bi-circle-fill" style="font-size:.45rem;line-height:1"></i> Open now</span>`
+      : b.openNow === false ? `<span class="open-badge open-badge--closed">Closed</span>` : '';
+    const proof = (b.rating || b.distance) ? `
+      <div class="scard-proof">
+        ${b.rating ? `<span class="stars">${'★'.repeat(Math.round(b.rating))}${'☆'.repeat(5-Math.round(b.rating))}</span> <span>${b.rating.toFixed(1)}</span> <span style="color:var(--text-muted)">(${b.reviewCount})</span>` : ''}
+        ${b.distance ? `<span style="color:var(--text-muted)">· ${esc(b.distance)}</span>` : ''}
+      </div>` : '';
+    const callHtml = b.callRef ? `
+      <button class="action-btn action-btn--call" data-call-idx="${rank}">
+        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 1.27h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.91a16 16 0 0 0 6.29 6.29l1.42-1.42a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        <span>Call now</span>
+      </button>` : '';
+    const videoHtml = `
+      <button class="action-btn action-btn--video" data-video-idx="${rank}">
+        <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        <span>Video</span>
+      </button>`;
+    const webHtml = b.website ? `
+      <a class="action-btn action-btn--web" href="${esc(b.website)}" target="_blank" rel="noopener">
+        <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+        <span>Website</span>
+      </a>` : '';
+    return `
+      <article class="scard${isBest ? ' scard--spotlight' : ''}">
+        <div class="scard-inner">
+          <div class="scard-top">${rankHtml}${openHtml}</div>
+          <h3 class="scard-name">${esc(b.name)}</h3>
+          ${proof}
+          ${b.address ? `<p class="scard-addr">${esc(b.address)}</p>` : ''}
+          <div class="scard-actions">
+            ${callHtml}
+            <div class="scard-actions-row">${videoHtml}${webHtml}</div>
+          </div>
+        </div>
+      </article>`;
+  }
+
+  // Call — phone number stays server-side
+  window.doCall = async (callRef, businessName, btn) => {
+    const orig = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = btn.innerHTML.replace(/<span>.*?<\/span>/, '<span>Connecting…</span>');
+    try {
+      const { telHref, error } = await fetch('/api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ callRef, businessName }) }).then(r => r.json());
+      if (error || !telHref) { alert(error || 'Call unavailable.'); btn.disabled = false; btn.innerHTML = orig; return; }
+      window.location.href = telHref;
+      btn.disabled = false; btn.innerHTML = orig;
+    } catch (e) { btn.disabled = false; btn.innerHTML = orig; alert('Could not connect. Try again.'); }
+  };
+
+  // Video
+  window.doVideo = async (businessName, problem, btn) => {
+    const orig = btn?.innerHTML;
+    if (btn) { btn.disabled = true; btn.innerHTML = btn.innerHTML.replace(/<span>.*?<\/span>/, '<span>Starting…</span>'); }
+    try {
+      const { sessionUrl, error } = await fetch('/api/video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ businessName, problem }) }).then(r => r.json());
+      if (error || !sessionUrl) { alert('Video unavailable right now.'); if (btn) { btn.disabled = false; btn.innerHTML = orig; } return; }
+      window.open(sessionUrl, '_blank');
+      if (btn) { btn.disabled = false; btn.innerHTML = orig; }
+    } catch (e) { if (btn) { btn.disabled = false; btn.innerHTML = orig; } alert('Video unavailable right now.'); }
+  };
+
+  function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+</script>
+</body>
+</html>

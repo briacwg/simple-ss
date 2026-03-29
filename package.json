@@ -1,0 +1,14 @@
+{
+  "name": "simple-ss",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/vercel": "^9.0.4",
+    "@upstash/redis": "^1.36.1",
+    "astro": "^5.16.5"
+  }
+}
