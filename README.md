@@ -23,7 +23,7 @@ Browser (results cards)               ├─ GET /api/dashboard     → 30d metr
   │  user taps "Call" or "Send request"
   ▼
 POST /api/call                          POST /api/dispatch (supply-adaptive)
-  ├─ resolveCallRef() — HMAC verify       ├─ reRankByAcceptance() — training data
+  ├─ resolveCallRef() — HMAC verify       ├─ reRankByAcceptance() — acceptance + review scores
   ├─ createCallSession() — PIN + token    ├─ scoreLeadUrgency() — urgency prefix
   └─ returns telHref: tel:BRIDGE,PIN      ├─ notify 1–3 businesses simultaneously
   │                                       ├─ QStash 5-min timeout per business
@@ -118,19 +118,24 @@ POST /api/review
 ### Flow 2 — Supply-Adaptive Dispatch Loop
 
 1. `POST /api/dispatch` receives the consumer request + ranked business list.
-2. **Supply level** is computed from the number of available businesses:
+2. **`reRankByAcceptance()`** re-orders candidates using two signals fetched in parallel from Supabase:
+   - Historical **acceptance rates** (specific to this service + location cell, and general across all leads).
+   - Consumer **review star ratings** (from `lead_events` `review_received` events) — applied as a quality multiplier once a business has ≥ 3 reviews.
+   - Falls back to the original Google Places order if Supabase is unavailable.
+3. **Supply level** is computed from the number of available businesses:
    - `high` (≥4): notify top 1 only — quality over quantity
    - `normal` (2–3): notify top 2 simultaneously
    - `low` (0–1): notify all available — widest net
-3. Each notified business receives an SMS: *"New lead … Reply YES to accept or NO to pass."*
-4. A 5-minute QStash timeout is scheduled per business (`/api/internal/dispatch-timeout`).
-5. When a business replies:
+4. Each notified business receives an SMS: *"New lead … Reply YES to accept or NO to pass."*
+5. A 5-minute QStash timeout is scheduled per business (`/api/internal/dispatch-timeout`).
+6. When a business replies:
    - **YES** → `/api/webhooks/sms-inbound` locks the lead, creates a call session, SMS consumer the bridge + PIN.
    - **NO** → advances the queue to the next business.
    - **STOP** → opts the business out of future outreach.
-6. If no business responds within 5 minutes, the timeout auto-advances the queue.
-7. If the queue is exhausted, the consumer receives an SMS to retry.
-8. 24 hours after dispatch, QStash fires `/api/jobs/review-followup` to request a consumer review.
+7. If no business responds within 5 minutes, the timeout auto-advances the queue.
+8. If the queue is exhausted, the consumer receives an SMS to retry.
+9. 24 hours after dispatch, QStash fires `/api/jobs/review-followup` to request a consumer review.
+10. Consumer submits a review via `POST /api/review` → rating is stored in `lead_events` and feeds back into step 2 for future dispatches, closing the full feedback loop.
 
 ### Flow 3 — Video Consult
 
@@ -211,6 +216,27 @@ POST /api/review
 ---
 
 ## API Reference
+
+### `POST /api/summarize`
+Layer 3 — website summarizer. Called by the client once per business card that has a website URL, **after** `/api/match` returns. Never blocks the initial match load.
+
+**Request body**
+```json
+{ "placeId": "ChIJ...", "websiteUrl": "https://abchvac.com", "businessName": "ABC HVAC" }
+```
+
+**Response**
+```json
+{ "summary": "ABC HVAC specialises in residential HVAC repair and installation across the Chicago metro area, with same-day service available for AC and furnace emergencies." }
+```
+
+Returns `{ "summary": null }` when the website is unreachable or Cerebras is unavailable — no error UI required.
+
+**Rate limit:** 10 requests per minute per IP (Redis sliding window). Returns `429` on excess.
+
+**Cache:** 30-day Redis cache keyed on `placeId` + hashed `websiteUrl` — most summaries resolve in < 50 ms on repeat visits.
+
+---
 
 ### `POST /api/match`
 Find businesses matching a service request.
@@ -745,7 +771,7 @@ vercel deploy
 | Claim dedup lock | `ss:claim:lock:{placeId}:{phone}` | 15 minutes |
 | SMS opt-out | `ss:sms:optout:{phone}` | permanent |
 | AI Workspace rate limit | `ss:workspace:rl:{phone}` | 1 hour (sliding window) |
-| Smart-rank acceptance rates | `ss:smart-rank:v1:{label}:{cell}:{phones}` | 10 minutes |
+| Smart-rank scores (acceptance + reviews) | `ss:smart-rank:v2:{label}:{cell}:{phones}` | 10 minutes |
 | Website summary | `sr:place:v1:{placeId}:website_summary:{hex12}` | 30 days |
 | Summarize rate limit | `ss:summarize:rl:{ip}` | 60 seconds (sliding window) |
 

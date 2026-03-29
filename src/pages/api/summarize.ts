@@ -71,6 +71,3 @@ export const POST: APIRoute = async ({ request }) => {
 
   return json({ summary });
 };
-
-// ── Response helpers ──────────────────────────────────────────────────────────
-
