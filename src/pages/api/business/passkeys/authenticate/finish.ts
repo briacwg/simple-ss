@@ -26,32 +26,12 @@ import type { APIRoute } from 'astro';
 import { verifyAuthenticationResponse } from '@simplewebauthn/server';
 import type { AuthenticationResponseJSON } from '@simplewebauthn/types';
 import { getSupabase } from '../../../../../lib/supabase';
+import { mintSessionToken } from '../../../../../lib/session';
 
 export const prerender = false;
 
 const RP_ID  = () => import.meta.env.WEBAUTHN_RP_ID  || 'localhost';
 const ORIGIN = () => import.meta.env.PUBLIC_SITE_URL || `https://${RP_ID()}`;
-
-// ── Session token ─────────────────────────────────────────────────────────────
-
-async function signSessionToken(userId: string): Promise<string> {
-  const secret = import.meta.env.BUSINESS_JWT_SECRET || import.meta.env.DISPATCH_JOB_SECRET || 'dev-secret';
-  const exp    = Math.floor(Date.now() / 1000) + 86400; // 24h
-  const payload = `${userId}.${exp}`;
-
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
-  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-  const payloadB64 = btoa(payload).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-  return `${payloadB64}.${sigB64}`;
-}
 
 // ── Endpoint ──────────────────────────────────────────────────────────────────
 
@@ -166,8 +146,8 @@ export const POST: APIRoute = async ({ request }) => {
     verified_at:   new Date().toISOString(),
   }).catch(() => null);
 
-  // Issue a signed session token
-  const token = await signSessionToken(userId);
+  // Issue a signed session token (delegates to shared lib/session.ts)
+  const token = await mintSessionToken(userId);
 
   return json({ verified: true, token, userId });
 };

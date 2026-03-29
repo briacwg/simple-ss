@@ -20,12 +20,26 @@
 import type { APIRoute } from 'astro';
 import { normalizePhone } from '../../lib';
 import { getSupabase, type BusinessWorkspaceSettings } from '../../lib/supabase';
+import { getBusinessSession } from '../../lib/session';
 
 export const prerender = false;
 
+// ── Session guard ─────────────────────────────────────────────────────────────
+
+/** Returns 401 when JWT auth is configured and the request has no valid session. */
+async function requireSession(request: Request): Promise<Response | null> {
+  const jwtSecret = import.meta.env.BUSINESS_JWT_SECRET || import.meta.env.DISPATCH_JOB_SECRET;
+  if (!jwtSecret) return null; // local dev — skip auth
+  const session = await getBusinessSession(request);
+  if (!session) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+  return null;
+}
+
 // ── GET — fetch settings ──────────────────────────────────────────────────────
 
-export const GET: APIRoute = async ({ url }) => {
+export const GET: APIRoute = async ({ url, request }) => {
+  const authErr = await requireSession(request);
+  if (authErr) return authErr;
   const rawPhone = url.searchParams.get('phone');
   if (!rawPhone) return err('phone query param required', 400);
 
@@ -75,6 +89,8 @@ export const GET: APIRoute = async ({ url }) => {
 // ── PUT — upsert settings ─────────────────────────────────────────────────────
 
 export const PUT: APIRoute = async ({ request }) => {
+  const authErr = await requireSession(request);
+  if (authErr) return authErr;
   const body = await request.json().catch(() => null);
   if (!body?.businessPhone) return err('businessPhone required', 400);
 

@@ -20,6 +20,8 @@
 import type { APIRoute } from 'astro';
 import { resolveCallRef, redis, normalizePhone } from '../../lib';
 import { logLeadEvent } from '../../lib/supabase';
+import { reRankByAcceptance } from '../../lib/smart-rank';
+import { scoreLeadUrgency, urgencySmsPrefix } from '../../lib/lead-score';
 
 export const prerender = false;
 
@@ -148,10 +150,24 @@ export const POST: APIRoute = async ({ request }) => {
   ).then(r => r.filter((b): b is { phone: string; name: string } => b !== null));
 
   // Full ranked queue: primary first, then fallback candidates
-  const allBusinesses = [
+  const rawBusinesses = [
     { phone: primaryPhone, name: primaryName },
     ...additionalResolved,
   ];
+
+  // Score lead urgency for enriched SMS messaging
+  const urgency = scoreLeadUrgency(problem);
+
+  // Re-rank by historical acceptance rates from training data (1s timeout)
+  const serviceLabel = body.serviceLabel ? String(body.serviceLabel).slice(0, 80) : null;
+  const locationCell = body.lat != null && body.lng != null
+    ? `${Math.round(Number(body.lat) * 10)}:${Math.round(Number(body.lng) * 10)}`
+    : null;
+
+  const allBusinesses = await Promise.race([
+    reRankByAcceptance(rawBusinesses, serviceLabel, locationCell),
+    new Promise<typeof rawBusinesses>(resolve => setTimeout(() => resolve(rawBusinesses), 1000)),
+  ]);
 
   const supplyLevel  = getSupplyLevel(allBusinesses.length);
   const dispatchWidth = getDispatchWidth(supplyLevel);
@@ -168,11 +184,6 @@ export const POST: APIRoute = async ({ request }) => {
   const now        = Date.now();
 
   const windowSec = getWindowSeconds(allBusinesses.length);
-
-  const serviceLabel = body.serviceLabel ? String(body.serviceLabel).slice(0, 80) : null;
-  const locationCell = body.lat != null && body.lng != null
-    ? `${Math.round(Number(body.lat) * 10)}:${Math.round(Number(body.lng) * 10)}`
-    : null;
 
   const record: DispatchRecord = {
     dispatchId,
@@ -203,7 +214,7 @@ export const POST: APIRoute = async ({ request }) => {
   // Notify the first `dispatchWidth` businesses simultaneously
   const notifySlice = businessQueue.slice(0, dispatchWidth);
   const smsSentResults = await Promise.all(
-    notifySlice.map(b => sendLeadSms(b.phone, b.name, problem, location).catch(() => false)),
+    notifySlice.map(b => sendLeadSms(b.phone, b.name, problem, location, urgency).catch(() => false)),
   );
   const anySent = smsSentResults.some(Boolean);
 
@@ -247,13 +258,13 @@ export const POST: APIRoute = async ({ request }) => {
             service_label:  serviceLabel,
             location_cell:  locationCell,
             consumer_phone: consumerPhone,
-            meta:           { supplyLevel, queuePosition: i, windowSeconds: windowSec },
+            meta:           { supplyLevel, queuePosition: i, windowSeconds: windowSec, urgencyTier: urgency.tier, urgencyScore: urgency.score },
           }).catch(() => null)
         : Promise.resolve(),
     ),
   );
 
-  return json({ dispatchId, supplyLevel, notified: notifySlice.length, windowSeconds: windowSec });
+  return json({ dispatchId, supplyLevel, notified: notifySlice.length, windowSeconds: windowSec, urgencyTier: urgency.tier });
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -264,14 +275,19 @@ async function sendLeadSms(
   businessName: string,
   problem: string,
   location: string,
+  urgency?: import('../../lib/lead-score').LeadScore,
 ): Promise<boolean> {
   const sid   = import.meta.env.TWILIO_ACCOUNT_SID;
   const token = import.meta.env.TWILIO_AUTH_TOKEN;
   const from  = import.meta.env.TWILIO_FROM_NUMBER;
   if (!sid || !token || !from) return false;
 
+  const header = urgency
+    ? urgencySmsPrefix(urgency, businessName)
+    : `ServiceSurfer: New lead for ${businessName}!`;
+
   const lines = [
-    `ServiceSurfer: New lead for ${businessName}!`,
+    header,
     problem  ? `Problem: ${problem}`   : null,
     location ? `Location: ${location}` : null,
     'Reply YES to accept this lead or NO to pass.',

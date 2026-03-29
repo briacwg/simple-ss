@@ -23,12 +23,21 @@
 import type { APIRoute } from 'astro';
 import { normalizePhone } from '../../lib';
 import { getSupabase } from '../../lib/supabase';
+import { getBusinessSession } from '../../lib/session';
 
 export const prerender = false;
 
 const CACHE_STALE_MS = 60 * 60 * 1000; // 1 hour
 
-export const GET: APIRoute = async ({ url }) => {
+export const GET: APIRoute = async ({ url, request }) => {
+  // Require a valid business session token when BUSINESS_JWT_SECRET is configured.
+  // Falls through in local dev (no secret set) to allow unauthenticated access.
+  const jwtSecret = import.meta.env.BUSINESS_JWT_SECRET || import.meta.env.DISPATCH_JOB_SECRET;
+  if (jwtSecret) {
+    const session = await getBusinessSession(request);
+    if (!session) return err('unauthorized — valid business session required', 401);
+  }
+
   const rawPhone = url.searchParams.get('phone');
   if (!rawPhone) return err('phone query param required', 400);
 
