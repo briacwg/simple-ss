@@ -34,7 +34,7 @@ export const prerender = false;
     }
 
     .page { display: flex; flex-direction: column; align-items: center; padding: 2.5rem 1rem 6rem; width: 100%; }
-    .hero { width: min(100%, 560px); display: flex; flex-direction: column; align-items: center; }
+    .hero { width: min(100%, 680px); display: flex; flex-direction: column; align-items: center; }
 
     /* Logo */
     .logo {
@@ -63,8 +63,8 @@ export const prerender = false;
     .search-icon-wrap { position:absolute; left:1rem; color:var(--text-muted); pointer-events:none; display:flex; align-items:center; }
     .search-icon { width:1.2rem; height:1.2rem; }
     .search-input {
-      width:100%; min-height:3.6rem; padding:.85rem 3.6rem .85rem 2.9rem;
-      font-size:1.05rem; font-family:inherit; color:var(--text-primary);
+      width:100%; min-height:4rem; padding:.95rem 3.6rem .95rem 2.9rem;
+      font-size:1.1rem; font-family:inherit; color:var(--text-primary);
       background:transparent; border:0; outline:none; appearance:none;
     }
     .search-input::placeholder { color:var(--text-muted); }
@@ -101,7 +101,7 @@ export const prerender = false;
     .qa-btn--video:hover { background: color-mix(in oklab,var(--accent-blue) 82%,var(--text-primary)); }
 
     /* Trending pills */
-    .trending { width:min(100%,560px); margin:1.6rem auto 0; }
+    .trending { width:min(100%,680px); margin:1.6rem auto 0; }
     .trending-label { font-size:.95rem; font-weight:600; color:var(--text-tertiary); margin-bottom:.8rem; }
     .trending-label .loc { color:var(--accent-blue); font-weight:700; }
     .pills { display:flex; flex-wrap:wrap; gap:.5rem; }
@@ -115,7 +115,7 @@ export const prerender = false;
     .pill:hover { background:var(--bg-primary); color:var(--text-primary); border-color:var(--text-muted); }
 
     /* Results section */
-    .results-section { width:min(100%,560px); margin:2rem auto 0; padding-bottom: 2rem; }
+    .results-section { width:min(100%,680px); margin:2rem auto 0; padding-bottom: 2rem; }
     .qi-bar {
       padding:.65rem 1rem; border-radius:.9rem; margin-bottom:1rem;
       border:1px solid color-mix(in oklab,var(--accent-blue) 22%,var(--border-color));
@@ -221,16 +221,45 @@ export const prerender = false;
     .stars { color:#f59e0b; }
     .scard-addr { font-size:.84rem; color:var(--text-tertiary); line-height:1.45; }
 
-    /* Website summary — streamed in asynchronously */
-    .scard-summary {
-      font-size: .84rem; color: var(--text-tertiary); line-height: 1.55;
-      border-top: 1px solid color-mix(in oklab, var(--border-color) 65%, transparent);
-      padding-top: .7rem; animation: fadeIn .4s ease;
-    }
-    .scard-summary--loading {
-      color: var(--text-muted); font-style: italic;
-    }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes shimmer { 0%,100%{opacity:.45} 50%{opacity:.9} }
+
+    /* "Why this business" AI summary block */
+    .scard-why {
+      border-top: 1px solid color-mix(in oklab, var(--border-color) 65%, transparent);
+      padding-top: .75rem; animation: fadeIn .4s ease;
+    }
+    .scard-why-head {
+      display: flex; align-items: center; gap: .35rem;
+      margin-bottom: .45rem;
+    }
+    .scard-why-label {
+      font-size: .72rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+      color: color-mix(in oklab, var(--accent-blue) 70%, var(--text-secondary));
+    }
+    .scard-why-icon { color: color-mix(in oklab, var(--accent-blue) 70%, var(--text-secondary)); flex-shrink: 0; }
+    .scard-why-list {
+      list-style: none; display: flex; flex-direction: column; gap: .3rem;
+      padding: 0; margin: 0;
+    }
+    .scard-why-list li {
+      font-size: .84rem; color: var(--text-secondary); line-height: 1.5;
+      display: flex; align-items: flex-start; gap: .4rem;
+    }
+    .scard-why-list li::before {
+      content: '→'; color: var(--accent-blue); font-size: .78rem;
+      flex-shrink: 0; margin-top: .12rem; font-weight: 700;
+    }
+    /* Skeleton shimmer while loading */
+    .scard-why--loading .scard-why-list li {
+      height: .85rem; border-radius: 4px;
+      background: color-mix(in oklab, var(--border-color) 70%, var(--bg-secondary));
+      animation: shimmer 1.4s ease-in-out infinite;
+      color: transparent;
+    }
+    .scard-why--loading .scard-why-list li::before { display: none; }
+    .scard-why--loading .scard-why-list li:nth-child(2) { width: 78%; animation-delay: .2s; }
+    .scard-why--loading .scard-why-list li:nth-child(3) { width: 62%; animation-delay: .4s; }
 
     .scard-actions {
       display:flex; flex-direction:column; gap:.6rem; margin-top:auto;
@@ -405,6 +434,7 @@ export const prerender = false;
         }
         lastBusinesses = businesses;
         lastLabel = label || '';
+        const top3 = businesses.slice(0, 3);
         const lbl = label ? label.charAt(0).toUpperCase() + label.slice(1) : '';
         const locText = locLabel?.textContent && locLabel.textContent !== 'your area' ? ` near ${locLabel.textContent}` : ' nearby';
 
@@ -424,12 +454,12 @@ export const prerender = false;
         // ── AI summary hint (Cerebras one-liner) ────────────────────────────
         const aiHint = aiSummary
           ? `<div class="qi-bar">${esc(aiSummary)}</div>`
-          : (lbl ? `<div class="qi-bar"><b>${businesses.length} ${lbl}</b> open${locText}</div>` : '');
+          : (lbl ? `<div class="qi-bar"><b>${top3.length} ${lbl}</b> open${locText}</div>` : '');
 
         resultsEl.innerHTML = `
           ${aiHint}
           ${diagnosisHtml}
-          <div class="decision-deck">${businesses.map((b, i) => card(b, i)).join('')}</div>
+          <div class="decision-deck">${top3.map((b, i) => card(b, i)).join('')}</div>
         `;
 
         // Wire card buttons
@@ -452,11 +482,18 @@ export const prerender = false;
           });
         });
 
-        // ── Layer 3: load website summaries asynchronously ──────────────────
-        businesses.forEach((b, i) => {
-          if (!b.website || !b.placeId) return;
-          const summaryEl = document.getElementById(`summary-${i}`);
-          if (!summaryEl) return;
+        // ── Layer 3: "Why this business" — async AI bullet points ───────────
+        top3.forEach((b, i) => {
+          const whyEl  = document.getElementById(`why-${i}`);
+          const listEl = document.getElementById(`why-list-${i}`);
+          if (!whyEl || !listEl) return;
+          if (!b.website && !b.placeId) {
+            // No data to fetch — build bullets from what we have
+            const fallback = buildWhyFallback(b);
+            listEl.innerHTML = fallback.map(t => `<li>${esc(t)}</li>`).join('');
+            whyEl.classList.remove('scard-why--loading');
+            return;
+          }
           fetch('/api/summarize', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -464,15 +501,41 @@ export const prerender = false;
           })
             .then(r => r.json())
             .then(({ summary }) => {
-              if (summary && summaryEl) {
-                summaryEl.textContent = summary;
-                summaryEl.classList.remove('scard-summary--loading');
-              } else if (summaryEl) {
-                summaryEl.remove();
-              }
+              if (!whyEl || !listEl) return;
+              const bullets = summary
+                ? splitIntoBullets(summary, b)
+                : buildWhyFallback(b);
+              listEl.innerHTML = bullets.map(t => `<li>${esc(t)}</li>`).join('');
+              whyEl.classList.remove('scard-why--loading');
             })
-            .catch(() => summaryEl && summaryEl.remove());
+            .catch(() => {
+              if (!whyEl || !listEl) return;
+              const fallback = buildWhyFallback(b);
+              listEl.innerHTML = fallback.map(t => `<li>${esc(t)}</li>`).join('');
+              whyEl.classList.remove('scard-why--loading');
+            });
         });
+
+        function splitIntoBullets(summary, b) {
+          // If the summary has sentence boundaries, split into ≤3 bullet points
+          const sentences = summary.replace(/\.([A-Z])/g, '. $1').split(/\.\s+/).filter(s => s.trim().length > 8);
+          if (sentences.length >= 2) return sentences.slice(0, 3).map(s => s.replace(/\.?\s*$/, ''));
+          // Otherwise use as single bullet + add context from structured data
+          const bullets = [summary.trim().replace(/\.$/, '')];
+          if (b.rating && b.reviewCount) bullets.push(`Rated ${b.rating.toFixed(1)} ★ across ${b.reviewCount} reviews`);
+          if (b.openNow === true) bullets.push('Currently open for service');
+          return bullets.slice(0, 3);
+        }
+
+        function buildWhyFallback(b) {
+          const bullets = [];
+          if (b.rating && b.reviewCount > 0) bullets.push(`Rated ${b.rating.toFixed(1)} ★ across ${b.reviewCount} customer reviews`);
+          if (b.distance) bullets.push(`Located ${b.distance} from your area`);
+          if (b.openNow === true) bullets.push('Currently open — available now');
+          else if (b.openNow === false) bullets.push('Currently closed — check hours before calling');
+          if (!bullets.length) bullets.push('Top-ranked match for your service request');
+          return bullets.slice(0, 3);
+        }
       })
       .catch(() => {
         sendBtn.disabled = false;
@@ -514,10 +577,17 @@ export const prerender = false;
         <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
         <span>Send request</span>
       </button>` : '';
-    // Layer 3: placeholder shown while website summary loads
-    const summaryHtml = b.website
-      ? `<div class="scard-summary scard-summary--loading" id="summary-${rank}">Loading business info…</div>`
-      : '';
+    // "Why this business" block — shown for all cards, async-filled from /api/summarize
+    const whyHtml = `
+      <div class="scard-why scard-why--loading" id="why-${rank}">
+        <div class="scard-why-head">
+          <svg class="scard-why-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+          <span class="scard-why-label">Why this business</span>
+        </div>
+        <ul class="scard-why-list" id="why-list-${rank}">
+          <li>&nbsp;</li><li>&nbsp;</li><li>&nbsp;</li>
+        </ul>
+      </div>`;
     return `
       <article class="scard${isBest ? ' scard--spotlight' : ''}">
         <div class="scard-inner">
@@ -525,7 +595,7 @@ export const prerender = false;
           <h3 class="scard-name">${esc(b.name)}</h3>
           ${proof}
           ${b.address ? `<p class="scard-addr">${esc(b.address)}</p>` : ''}
-          ${summaryHtml}
+          ${whyHtml}
           <div class="scard-actions">
             ${callHtml}
             <div class="scard-actions-row">${videoHtml}${webHtml}${dispatchHtml}</div>
