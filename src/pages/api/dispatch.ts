@@ -23,6 +23,7 @@ import { logLeadEvent } from '../../lib/supabase';
 import { reRankByAcceptance } from '../../lib/smart-rank';
 import { scoreLeadUrgency, urgencySmsPrefix } from '../../lib/lead-score';
 import { scheduleDispatchTimeout as qScheduleTimeout, scheduleReviewFollowup as qScheduleReview } from '../../lib/qstash';
+import { sendLeadSms as twilioSendLeadSms } from '../../lib/twilio';
 
 export const prerender = false;
 
@@ -215,7 +216,10 @@ export const POST: APIRoute = async ({ request }) => {
   // Notify the first `dispatchWidth` businesses simultaneously
   const notifySlice = businessQueue.slice(0, dispatchWidth);
   const smsSentResults = await Promise.all(
-    notifySlice.map(b => sendLeadSms(b.phone, b.name, problem, location, urgency).catch(() => false)),
+    notifySlice.map(b => {
+      const header = urgency ? urgencySmsPrefix(urgency, b.name) : '';
+      return twilioSendLeadSms(b.phone, b.name, problem, location, header).catch(() => false);
+    }),
   );
   const anySent = smsSentResults.some(Boolean);
 
@@ -270,42 +274,6 @@ export const POST: APIRoute = async ({ request }) => {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Sends an outreach SMS to a business announcing a new lead. */
-async function sendLeadSms(
-  to: string,
-  businessName: string,
-  problem: string,
-  location: string,
-  urgency?: import('../../lib/lead-score').LeadScore,
-): Promise<boolean> {
-  const sid   = import.meta.env.TWILIO_ACCOUNT_SID;
-  const token = import.meta.env.TWILIO_AUTH_TOKEN;
-  const from  = import.meta.env.TWILIO_FROM_NUMBER;
-  if (!sid || !token || !from) return false;
-
-  const header = urgency
-    ? urgencySmsPrefix(urgency, businessName)
-    : `ServiceSurfer: New lead for ${businessName}!`;
-
-  const lines = [
-    header,
-    problem  ? `Problem: ${problem}`   : null,
-    location ? `Location: ${location}` : null,
-    'Reply YES to accept this lead or NO to pass.',
-  ].filter(Boolean);
-
-  const res = await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
-    {
-      method:  'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization:  `Basic ${btoa(`${sid}:${token}`)}`,
-      },
-      body: new URLSearchParams({ To: to, From: from, Body: lines.join('\n') }).toString(),
-    },
-  );
-  return res.ok;
 }
 
 /** Delegates to lib/qstash.ts — schedules per-business timeout via QStash. */

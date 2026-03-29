@@ -14,6 +14,7 @@
 
 import type { APIRoute } from 'astro';
 import { redis, normalizePhone } from '../../lib';
+import { sendClaimVerificationSms } from '../../lib/twilio';
 
 export const prerender = false;
 
@@ -77,7 +78,7 @@ export const POST: APIRoute = async ({ request }) => {
   ]);
 
   // Send verification SMS
-  const smsSent = await sendVerificationSms(ownerPhone, businessName, code).catch(() => false);
+  const smsSent = await sendClaimVerificationSms(ownerPhone, businessName, code).catch(() => false);
   if (!smsSent) {
     // Clean up claim on SMS failure so the owner can retry immediately
     await Promise.all([r.del(CK(claimId)), r.del(dedupKey)]).catch(() => null);
@@ -86,37 +87,6 @@ export const POST: APIRoute = async ({ request }) => {
 
   return json({ claimId, expiresAt: claim.expiresAt });
 };
-
-// ── Twilio SMS helper ─────────────────────────────────────────────────────────
-
-async function sendVerificationSms(
-  to: string,
-  businessName: string,
-  code: string,
-): Promise<boolean> {
-  const sid   = import.meta.env.TWILIO_ACCOUNT_SID;
-  const token = import.meta.env.TWILIO_AUTH_TOKEN;
-  const from  = import.meta.env.TWILIO_FROM_NUMBER;
-  if (!sid || !token || !from) return false;
-
-  const body = [
-    `ServiceSurfer: ${code} is your verification code for claiming ${businessName}.`,
-    'This code expires in 15 minutes. Do not share it.',
-  ].join(' ');
-
-  const res = await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization: `Basic ${btoa(`${sid}:${token}`)}`,
-      },
-      body: new URLSearchParams({ To: to, From: from, Body: body }).toString(),
-    },
-  );
-  return res.ok;
-}
 
 // ── Response helpers ──────────────────────────────────────────────────────────
 

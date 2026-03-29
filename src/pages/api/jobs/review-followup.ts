@@ -16,6 +16,7 @@ import type { APIRoute } from 'astro';
 import { redis } from '../../../lib';
 import type { DispatchRecord } from '../dispatch';
 import { verifyQStashSignature } from '../../../lib/qstash';
+import { sendReviewRequestSms } from '../../../lib/twilio';
 
 export const prerender = false;
 
@@ -46,10 +47,12 @@ export const POST: APIRoute = async ({ request }) => {
   if (record.reviewSentAt) return json({ ok: true, skipped: 'already_sent' });
   if (!record.consumerPhone) return json({ ok: true, skipped: 'no_consumer_phone' });
 
-  const smsSent = await sendReviewSms(
+  const site = import.meta.env.PUBLIC_SITE_URL || 'https://servicesurfer.app';
+  const reviewUrl = `${site}/review?d=${encodeURIComponent(record.dispatchId)}`;
+  const smsSent = await sendReviewRequestSms(
     record.consumerPhone,
     record.businessName,
-    record.dispatchId,
+    reviewUrl,
   ).catch(() => false);
 
   if (smsSent) {
@@ -59,41 +62,6 @@ export const POST: APIRoute = async ({ request }) => {
 
   return json({ ok: true, smsSent });
 };
-
-// ── QStash signature verification ────────────────────────────────────────────
-
-// ── Twilio SMS helper ─────────────────────────────────────────────────────────
-
-async function sendReviewSms(
-  to: string,
-  businessName: string,
-  dispatchId: string,
-): Promise<boolean> {
-  const sid   = import.meta.env.TWILIO_ACCOUNT_SID;
-  const token = import.meta.env.TWILIO_AUTH_TOKEN;
-  const from  = import.meta.env.TWILIO_FROM_NUMBER;
-  const site  = import.meta.env.PUBLIC_SITE_URL || 'https://servicesurfer.app';
-  if (!sid || !token || !from) return false;
-
-  const reviewLink = `${site}/review?d=${encodeURIComponent(dispatchId)}`;
-  const body = [
-    `ServiceSurfer: How was your experience with ${businessName}?`,
-    `Leave a quick review and help others find great pros: ${reviewLink}`,
-  ].join('\n');
-
-  const res = await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization: `Basic ${btoa(`${sid}:${token}`)}`,
-      },
-      body: new URLSearchParams({ To: to, From: from, Body: body }).toString(),
-    },
-  );
-  return res.ok;
-}
 
 // ── Response helpers ──────────────────────────────────────────────────────────
 

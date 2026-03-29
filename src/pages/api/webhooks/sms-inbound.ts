@@ -20,6 +20,7 @@ import type { APIRoute } from 'astro';
 import { redis, normalizePhone, createCallSession, bridgeNumber } from '../../../lib';
 import { DK, BPDK, DISPATCH_TTL, type DispatchRecord, type QueuedBusiness } from '../dispatch';
 import { logTrainingEvent, logLeadEvent } from '../../../lib/supabase';
+import { sendSms, sendLeadSms as twilioSendLeadSms, sendConsumerAcceptedSms, sendConsumerSearchingSms } from '../../../lib/twilio';
 
 export const prerender = false;
 
@@ -249,7 +250,7 @@ export async function advanceQueue(
   await r.set(DK(record.dispatchId), JSON.stringify(updated), { ex: DISPATCH_TTL }).catch(() => null);
 
   // Notify the next business
-  const smsSent = await sendLeadSms(next.phone, next.name, record.problem, record.location).catch(() => false);
+  const smsSent = await twilioSendLeadSms(next.phone, next.name, record.problem, record.location).catch(() => false);
   if (smsSent) {
     await r.set(BPDK(next.phone), record.dispatchId, { ex: 60 * 30 }).catch(() => null);
   }
@@ -304,39 +305,6 @@ async function recordOptOut(phone: string): Promise<void> {
   if (r) await r.set(`ss:sms:optout:${phone}`, '1').catch(() => null);
 }
 
-// ── SMS helpers ───────────────────────────────────────────────────────────────
-
-async function sendLeadSms(
-  to: string,
-  businessName: string,
-  problem: string,
-  location: string,
-): Promise<boolean> {
-  const sid   = import.meta.env.TWILIO_ACCOUNT_SID;
-  const token = import.meta.env.TWILIO_AUTH_TOKEN;
-  const from  = import.meta.env.TWILIO_FROM_NUMBER;
-  if (!sid || !token || !from) return false;
-
-  const lines = [
-    `ServiceSurfer: New lead for ${businessName}!`,
-    problem  ? `Problem: ${problem}`   : null,
-    location ? `Location: ${location}` : null,
-    'Reply YES to accept or NO to pass.',
-  ].filter(Boolean);
-
-  const res = await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
-    {
-      method:  'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization:  `Basic ${btoa(`${sid}:${token}`)}`,
-      },
-      body: new URLSearchParams({ To: to, From: from, Body: lines.join('\n') }).toString(),
-    },
-  );
-  return res.ok;
-}
 
 /**
  * Notifies the consumer that a business accepted their lead.
@@ -348,60 +316,23 @@ async function notifyConsumerAccepted(
   businessPhone: string,
   problem: string,
 ): Promise<void> {
-  const sid   = import.meta.env.TWILIO_ACCOUNT_SID;
-  const token = import.meta.env.TWILIO_AUTH_TOKEN;
-  const from  = import.meta.env.TWILIO_FROM_NUMBER;
-  if (!sid || !token || !from) return;
-
-  // Create a call session so the consumer can dial with a fresh PIN
   const session = await createCallSession(businessPhone, businessName);
   const bridge  = bridgeNumber().replace(/[^\d+]/g, '');
 
-  const body = session
-    ? [
-        `ServiceSurfer: ${businessName} is ready to help with: ${problem || 'your request'}!`,
-        `Call ${bridge} and enter PIN: ${session.pin}`,
-        '(PIN valid for 15 minutes)',
-      ].join('\n')
-    : `ServiceSurfer: ${businessName} accepted your request for: ${problem || 'your service'}! They will call you shortly.`;
-
-  await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
-    {
-      method:  'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization:  `Basic ${btoa(`${sid}:${token}`)}`,
-      },
-      body: new URLSearchParams({ To: consumerPhone, From: from, Body: body }).toString(),
-    },
-  );
+  if (session) {
+    await sendConsumerAcceptedSms(consumerPhone, businessName, bridge, session.pin, problem);
+  } else {
+    await sendSms(
+      consumerPhone,
+      `ServiceSurfer: ${businessName} accepted your request for: ${problem || 'your service'}! They will call you shortly.`,
+    );
+  }
 }
 
 /** Notifies the consumer that all pros were tried and suggests retrying. */
 async function notifyConsumerSearching(consumerPhone: string): Promise<void> {
-  const sid   = import.meta.env.TWILIO_ACCOUNT_SID;
-  const token = import.meta.env.TWILIO_AUTH_TOKEN;
-  const from  = import.meta.env.TWILIO_FROM_NUMBER;
-  if (!sid || !token || !from) return;
-
   const site = import.meta.env.PUBLIC_SITE_URL || 'https://servicesurfer.app';
-  const body = [
-    'ServiceSurfer: All nearby pros are currently busy.',
-    `Try again shortly or search for more options: ${site}`,
-  ].join(' ');
-
-  await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
-    {
-      method:  'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization:  `Basic ${btoa(`${sid}:${token}`)}`,
-      },
-      body: new URLSearchParams({ To: consumerPhone, From: from, Body: body }).toString(),
-    },
-  );
+  await sendConsumerSearchingSms(consumerPhone, site);
 }
 
 // ── TwiML helper ──────────────────────────────────────────────────────────────
