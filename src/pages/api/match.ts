@@ -24,7 +24,8 @@
 
 import type { APIRoute } from 'astro';
 import { smartMatch, searchPlaces, redis } from '../../lib';
-import { inferServiceIntentHint } from '../../lib/intent';
+import { inferServiceIntentHint, inferDiagnosisHint } from '../../lib/intent';
+import { scoreLeadUrgency } from '../../lib/lead-score';
 
 export const prerender = false;
 
@@ -85,10 +86,24 @@ export const POST: APIRoute = async ({ request }) => {
     intentHint?.pluralLabel ??
     null;
 
+  // Layer 1: diagnosis hint — "Water leak detected / Likely: pipe or fitting failure"
+  // Uses the resolved service query (AI-preferred, Layer 1 fallback) for best accuracy.
+  const resolvedServiceQuery = (match.serviceLabel ?? layer1Query) || null;
+  const diagnosisHint = resolvedServiceQuery
+    ? inferDiagnosisHint(query, resolvedServiceQuery)
+    : null;
+
+  // Lead urgency scoring — used by the consumer UI to surface "URGENT" callouts
+  const urgency = scoreLeadUrgency(query);
+
   const result = {
     businesses:  businesses.length ? businesses : initialResults,
     label,
-    intentQuery: layer1Query, // expose so client can show "We found plumbers" etc.
+    intentQuery:   layer1Query,     // Layer 1 canonical query (e.g. "plumber")
+    aiSummary:     match.aiSummary, // Cerebras one-sentence description of the need
+    diagnosisHint,                  // consumer-facing issue label + likely cause
+    urgencyTier:   urgency.tier,    // 'critical' | 'high' | 'medium' | 'low'
+    urgencyScore:  urgency.score,   // 0–100
   };
 
   // Cache the combined result when we have businesses to return
