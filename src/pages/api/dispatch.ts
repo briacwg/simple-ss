@@ -15,6 +15,13 @@
  *
  * The full dispatch queue is stored in Redis so that /api/webhooks/sms-inbound can
  * process YES/NO replies and advance through the queue.
+ *
+ * Idempotency
+ * ───────────
+ * A 5-minute deduplication window per (consumerPhone × primaryCallRef) prevents
+ * double-dispatch from button double-taps or network retries.  The first request
+ * creates and stores a dispatch ID under a dedup key; subsequent identical requests
+ * within the window return the existing dispatch ID with `{ deduplicated: true }`.
  */
 
 import type { APIRoute } from 'astro';
@@ -81,6 +88,11 @@ export const BPDK = (phone: string) => `ss:dispatch:by-phone:${phone}`;
 
 export const DISPATCH_TTL    = 60 * 60 * 48; // 48 hours
 const        PHONE_INDEX_TTL = 60 * 30;       // 30 min — refreshed as queue advances
+const        DEDUP_TTL       = 60 * 5;        // 5 min — prevents double-tap / retry duplicates
+
+/** Dedup key: scoped to consumer × primary business to allow re-dispatch to a different pro. */
+const DEDUP_KEY = (consumerPhone: string, callRef: string) =>
+  `ss:dispatch:dedup:${consumerPhone}:${callRef.slice(0, 20)}`;
 
 // ── Supply-adaptive window ────────────────────────────────────────────────────
 //
@@ -140,6 +152,18 @@ export const POST: APIRoute = async ({ request }) => {
   const consumerPhone = body.consumerPhone
     ? normalizePhone(String(body.consumerPhone)) ?? null
     : null;
+
+  // Idempotency: return the existing dispatch when the consumer re-submits within
+  // the dedup window (double-tap, network retry, etc.) rather than creating a
+  // second dispatch that would SMS businesses twice for the same lead.
+  const r = redis();
+  if (r && consumerPhone) {
+    const dedupKey = DEDUP_KEY(consumerPhone, String(body.callRef));
+    const existingId = await r.get<string>(dedupKey).catch(() => null);
+    if (existingId) {
+      return json({ dispatchId: existingId, deduplicated: true });
+    }
+  }
 
   // Build the full ranked queue from additionalBusinesses (fallback candidates)
   const additionalRaw: Array<{ callRef: string; name: string }> =
@@ -209,9 +233,12 @@ export const POST: APIRoute = async ({ request }) => {
     status:       'pending',
   };
 
-  const r = redis();
   if (r) {
     await r.set(DK(dispatchId), JSON.stringify(record), { ex: DISPATCH_TTL }).catch(() => null);
+    // Register dedup key so retries within the window return the same dispatch ID
+    if (consumerPhone) {
+      await r.set(DEDUP_KEY(consumerPhone, String(body.callRef)), dispatchId, { ex: DEDUP_TTL }).catch(() => null);
+    }
   }
 
   // Notify the first `dispatchWidth` businesses simultaneously
