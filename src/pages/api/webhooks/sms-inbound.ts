@@ -14,6 +14,19 @@
  *
  * All requests are signature-verified against X-Twilio-Signature using HMAC-SHA1
  * and the Twilio auth token before any logic runs.
+ *
+ * Accept-lock (race-condition prevention)
+ * ────────────────────────────────────────
+ * When multiple businesses are notified simultaneously (normal / low supply) and
+ * two reply YES within milliseconds of each other, both webhook invocations can
+ * read the dispatch record before either has written the accepted status.  Without
+ * a lock, both would proceed to accept — the consumer would receive two "a pro
+ * accepted" SMS messages and two call sessions would be created.
+ *
+ * Before mutating the record, the YES branch atomically claims
+ * `ss:dispatch:accept-lock:{dispatchId}` using SET NX EX 60.  Only the first
+ * invocation to win the lock proceeds to handleAccept(); the loser receives a
+ * graceful TwiML reply informing them the lead was just taken.
  */
 
 import type { APIRoute } from 'astro';
@@ -71,6 +84,14 @@ export const POST: APIRoute = async ({ request }) => {
   if (queueIdx === -1) return twiml('');
 
   if (YES_TOKENS.has(token)) {
+    // Atomic accept-lock: SET NX returns null if another concurrent YES already won.
+    // This prevents the race where two simultaneous YES replies both call handleAccept().
+    const acceptLockKey = `ss:dispatch:accept-lock:${record.dispatchId}`;
+    const wonLock = await r.set(acceptLockKey, from, { nx: true, ex: 60 }).catch(() => null);
+    if (!wonLock) {
+      return twiml('<Message>This lead was just accepted by another provider. Thank you for your quick response!</Message>');
+    }
+
     await handleAccept(r, record, queueIdx, from);
     const bizName = record.businessQueue[queueIdx]?.name ?? record.businessName;
     return twiml(`<Message>Great! The consumer has been notified to call you. Good luck with this lead, ${bizName.split(' ')[0]}!</Message>`);
