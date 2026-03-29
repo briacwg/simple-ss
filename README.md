@@ -2,7 +2,7 @@
 
 > Instant local-service matching: describe a problem, get a ranked list of available pros, and connect in one tap.
 
-`simple-ss` is the lightweight, serverless consumer frontend for the ServiceSurfer platform. It handles **Flow 1** (consumer search → AI match → call bridge) and **Flow 2** (video consult), and feeds lead data into the wider dispatch pipeline.
+`simple-ss` is the lightweight, serverless consumer frontend for the ServiceSurfer platform. It handles **Flow 1** (consumer search → AI match → call bridge), **Flow 2** (video consult), and the full **supply-adaptive dispatch loop** — including YES/NO pro reply handling, queue auto-advancement, and consumer notification.
 
 ---
 
@@ -13,22 +13,38 @@ Browser
   │  describe problem + geolocation
   ▼
 POST /api/match
-  ├─ smartMatch()   →  Groq LLM   →  service category + queries (Redis 7d cache)
-  └─ searchPlaces() →  Google Places API  →  ranked businesses (Redis 4h cache)
+  ├─ smartMatch()   →  Cerebras LLM  →  service category + queries (Redis 7d cache)
+  └─ searchPlaces() →  Google Places →  ranked businesses (Redis 4h cache)
   │
   ▼  ranked Business[] (up to 6)
 Browser (results cards)
   │  user taps "Call"
   ▼
-POST /api/call                          POST /api/dispatch
-  ├─ resolveCallRef() — HMAC verify       ├─ store DispatchRecord in Redis
-  ├─ createCallSession() — PIN + token    ├─ Twilio SMS → business
-  └─ returns telHref: tel:BRIDGE,PIN      └─ QStash → review follow-up (24 h)
-  │
-  ▼  user taps tel: link
+POST /api/call                          POST /api/dispatch (supply-adaptive)
+  ├─ resolveCallRef() — HMAC verify       ├─ compute supply level (high/normal/low)
+  ├─ createCallSession() — PIN + token    ├─ notify 1–3 businesses simultaneously
+  └─ returns telHref: tel:BRIDGE,PIN      ├─ index phone → dispatchId in Redis
+  │                                       ├─ QStash 5-min timeout per business
+  ▼  user taps tel: link                  └─ QStash review follow-up (24 h)
 Twilio PSTN Bridge  ←→  /api/voice
   ├─ ?t=TOKEN  →  outbound bridge to business
   └─ Digits=PIN → inbound PIN lookup → bridge
+```
+
+```
+Business replies YES/NO via SMS
+  ▼
+POST /api/webhooks/sms-inbound (Twilio webhook)
+  ├─ HMAC-SHA1 signature verification
+  ├─ YES → accept lead, SMS consumer bridge+PIN, create call session
+  ├─ NO  → decline, advance dispatch queue to next business
+  └─ STOP → opt-out business from future SMS outreach
+
+QStash (5 min after business notified)
+  ▼
+POST /api/internal/dispatch-timeout
+  ├─ check if business responded
+  └─ if no response → auto-advance dispatch queue
 ```
 
 ```
@@ -40,15 +56,17 @@ POST /api/video  →  video.servicesurfer.app  →  returns sessionUrl
 
 ```
 Business owner
-  │  claims listing
+  │  claims listing / asks AI a question
   ▼
-POST /api/claim
-  ├─ store PendingClaim in Redis (15 min TTL)
-  └─ Twilio SMS → 6-digit verification code
+POST /api/claim                          POST /api/workspace
+  ├─ store PendingClaim in Redis           ├─ rate limit: 20 req/hr per phone
+  └─ Twilio SMS → 6-digit OTP             ├─ Cerebras LLM → personalised advice
+                                           └─ returns { answer, tips[] }
 
 QStash (24h after lead)
   ▼
 POST /api/jobs/review-followup
+  ├─ QStash HMAC signature verification
   ├─ load DispatchRecord from Redis
   └─ Twilio SMS → consumer review request
 ```
@@ -65,9 +83,9 @@ POST /api/jobs/review-followup
 | Business search | Google Places API (New) |
 | Call bridge | [Twilio](https://twilio.com) PSTN + TwiML |
 | Video consult | `video.servicesurfer.app` microservice |
-| Async jobs | [QStash](https://upstash.com/docs/qstash) (review follow-up) |
+| Async jobs | [QStash](https://upstash.com/docs/qstash) (dispatch timeouts + review follow-up) |
 | Geolocation | Browser API → ip-api.com / ipapi.co fallback |
-| Auth (tokens) | HMAC-SHA256 via Web Crypto API |
+| Auth (tokens) | HMAC-SHA256 (call refs) + HMAC-SHA1 (Twilio webhook sig) via Web Crypto API |
 
 ---
 
@@ -77,24 +95,46 @@ POST /api/jobs/review-followup
 
 1. User types a problem description (e.g. *"my sink is leaking"*).
 2. Browser geolocates the user (GPS preferred, IP fallback).
-3. `POST /api/match` runs smart-match and Google Places in parallel, returning up to 6 ranked businesses.
+3. `POST /api/match` runs smart-match (Cerebras) and Google Places in parallel, returning up to 6 ranked businesses.
 4. User taps **Call** on a card → `POST /api/call` resolves the HMAC-signed `callRef`, creates a 6-digit PIN session (15-minute TTL), and returns a `tel:BRIDGE,PIN` href.
 5. User's phone dialer opens and auto-dials the bridge number with the PIN.
 6. Twilio calls `GET|POST /api/voice?t=TOKEN` (outbound) or collects the PIN via DTMF (inbound) and bridges to the business.
-7. `POST /api/dispatch` stores the lead and sends an SMS alert to the business.
-8. After 24 hours, QStash triggers `POST /api/jobs/review-followup` to request a consumer review.
 
-### Flow 2 — Video Consult
+### Flow 2 — Supply-Adaptive Dispatch Loop
+
+1. `POST /api/dispatch` receives the consumer request + ranked business list.
+2. **Supply level** is computed from the number of available businesses:
+   - `high` (≥4): notify top 1 only — quality over quantity
+   - `normal` (2–3): notify top 2 simultaneously
+   - `low` (0–1): notify all available — widest net
+3. Each notified business receives an SMS: *"New lead … Reply YES to accept or NO to pass."*
+4. A 5-minute QStash timeout is scheduled per business (`/api/internal/dispatch-timeout`).
+5. When a business replies:
+   - **YES** → `/api/webhooks/sms-inbound` locks the lead, creates a call session, SMS consumer the bridge + PIN.
+   - **NO** → advances the queue to the next business.
+   - **STOP** → opts the business out of future outreach.
+6. If no business responds within 5 minutes, the timeout auto-advances the queue.
+7. If the queue is exhausted, the consumer receives an SMS to retry.
+8. 24 hours after dispatch, QStash fires `/api/jobs/review-followup` to request a consumer review.
+
+### Flow 3 — Video Consult
 
 1. User taps **Video** on any business card.
 2. `POST /api/video` proxies to the video microservice, which returns a `sessionUrl`.
 3. Browser navigates to the session URL for a live video consultation.
 
-### Flow 3 — Business Claiming
+### Flow 4 — Business Claiming
 
 1. Business owner finds their listing and taps **Claim**.
-2. `POST /api/claim` stores a pending claim in Redis and sends a 6-digit verification code via Twilio SMS to the business phone number.
+2. `POST /api/claim` stores a pending claim in Redis and sends a 6-digit verification code via Twilio SMS.
 3. Owner submits the code; the claim is verified and forwarded to the main platform.
+
+### Flow 5 — AI Workspace
+
+1. Business owner submits a question (e.g. *"How should I price a water heater replacement?"*).
+2. `POST /api/workspace` passes the question + business context to Cerebras.
+3. Returns a direct answer + 3 actionable tips personalised to the business's service category.
+4. Falls back to curated keyword-matched advice if Cerebras is unavailable.
 
 ---
 
@@ -158,7 +198,7 @@ Twilio voice webhook — handles both outbound click-to-call and inbound PIN-bas
 ---
 
 ### `POST /api/dispatch`
-Record a lead dispatch and notify the business by SMS.
+Supply-adaptive lead dispatch — notifies 1–3 businesses based on local supply level.
 
 **Request body**
 ```json
@@ -167,13 +207,43 @@ Record a lead dispatch and notify the business by SMS.
   "businessName": "ABC HVAC",
   "problem": "AC stopped working",
   "location": "Chicago, IL",
-  "consumerPhone": "+13125550100"
+  "consumerPhone": "+13125550100",
+  "additionalBusinesses": [
+    { "callRef": "<hmac-signed-token>", "name": "Cool Air LLC" },
+    { "callRef": "<hmac-signed-token>", "name": "City HVAC Pro" }
+  ]
 }
 ```
 
 **Response**
 ```json
-{ "dispatchId": "dp_1711234567890_abc123" }
+{ "dispatchId": "dp_1711234567890_abc123", "supplyLevel": "normal", "notified": 2 }
+```
+
+---
+
+### `POST /api/webhooks/sms-inbound`
+Twilio inbound SMS webhook — processes business YES/NO replies in the dispatch loop. Configure your Twilio number's **"A message comes in"** webhook URL to point here.
+
+| Reply | Tokens | Behaviour |
+|---|---|---|
+| Accept | `YES Y ACCEPT 1` | Lock lead, SMS consumer bridge+PIN, create call session |
+| Decline | `NO N PASS SKIP` | Advance dispatch queue to next business |
+| Opt-out | `STOP UNSUBSCRIBE` | Record opt-out in Redis, reply confirmation |
+| Help | `HELP INFO` | Reply with usage instructions |
+
+**Headers:** `X-Twilio-Signature` (HMAC-SHA1 verified server-side)
+
+---
+
+### `POST /api/internal/dispatch-timeout`
+QStash webhook — fires 5 minutes after a business is notified. Auto-advances the dispatch queue if the business has not replied.
+
+**Headers:** `Authorization: Bearer {DISPATCH_JOB_SECRET}`
+
+**Request body**
+```json
+{ "dispatchId": "dp_1711234567890_abc123", "businessPhone": "+13125550100" }
 ```
 
 ---
@@ -181,11 +251,37 @@ Record a lead dispatch and notify the business by SMS.
 ### `POST /api/jobs/review-followup`
 QStash webhook — sent automatically 24 hours after a dispatch. Sends a review-request SMS to the consumer.
 
-**Headers:** `Upstash-Signature` (verified server-side)
+**Headers:** `Upstash-Signature` (HMAC-SHA256 verified server-side, with key rotation)
 
 **Request body**
 ```json
 { "dispatchId": "dp_1711234567890_abc123" }
+```
+
+---
+
+### `POST /api/workspace`
+AI Workspace — Cerebras-powered business coaching with a Redis sliding-window rate limit (20 req/hr per phone).
+
+**Request body**
+```json
+{
+  "businessName": "ABC HVAC",
+  "serviceLabel": "HVAC technician",
+  "question": "How should I price a water heater replacement?",
+  "leadContext": "Customer's water heater stopped working, needs same-day service",
+  "businessPhone": "+13125550100"
+}
+```
+
+**Response**
+```json
+{
+  "answer": "Price water heater replacements at $800–$1,400 depending on unit type and install complexity.",
+  "tips": ["Include haul-away of old unit in your price", "Quote labour and parts separately", "Offer a 1-year warranty to differentiate from competitors"],
+  "provider": "cerebras",
+  "latencyMs": 312
+}
 ```
 
 ---
@@ -246,9 +342,10 @@ Health check — verifies Redis connectivity and required env vars.
 - Node.js ≥ 18
 - Vercel account (or any Node-compatible host with SSR support)
 - Upstash Redis database
+- Upstash QStash account (for dispatch timeouts + review follow-up)
 - Twilio account with a purchased phone number
 - Google Cloud project with Places API (New) + Geocoding API enabled
-- Groq API key
+- Cerebras API key
 
 ### 1. Clone & install
 
@@ -268,7 +365,21 @@ Set your Twilio number's **Voice URL** to:
 ```
 https://your-domain/api/voice
 ```
-Method: HTTP POST (or GET — both are handled).
+
+Set your Twilio number's **"A message comes in" (SMS) URL** to:
+```
+https://your-domain/api/webhooks/sms-inbound
+```
+
+Method: HTTP POST for both.
+
+### 3a. Configure QStash
+
+When publishing dispatch-timeout jobs, include the authorization header:
+```
+Authorization: Bearer {DISPATCH_JOB_SECRET}
+```
+The dispatch endpoint sets this automatically via the `DISPATCH_JOB_SECRET` env var.
 
 ### 4. Run locally
 
@@ -298,12 +409,13 @@ vercel deploy
 | `TWILIO_AUTH_TOKEN` | ✅ | Twilio auth token |
 | `TWILIO_FROM_NUMBER` | ✅ | Twilio sender phone number (E.164) |
 | `PUBLIC_SERVICE_SURFER_CALL_NUMBER` | ✅ | Bridge phone number shown to consumers |
+| `DISPATCH_JOB_SECRET` | ✅ | Bearer token for `/api/internal/dispatch-timeout` authorization |
 | `VIDEO_APP_URL` | | Base URL of the video microservice (default: `https://video.servicesurfer.app`) |
-| `QSTASH_URL` | | Upstash QStash endpoint URL (required for dispatch review follow-up) |
+| `QSTASH_URL` | | Upstash QStash endpoint URL (required for dispatch timeouts + review follow-up) |
 | `QSTASH_TOKEN` | | Upstash QStash auth token |
 | `QSTASH_CURRENT_SIGNING_KEY` | | QStash webhook signature verification key |
 | `QSTASH_NEXT_SIGNING_KEY` | | QStash webhook signature verification key (rotation) |
-| `PUBLIC_SITE_URL` | | Canonical site URL used in SMS links |
+| `PUBLIC_SITE_URL` | | Canonical site URL used in QStash callback URLs and SMS review links |
 
 ---
 
@@ -317,7 +429,11 @@ vercel deploy
 | Call session (by token) | `ss:public-call:token:{token}` | 15 minutes |
 | Call session (by PIN) | `ss:public-call:pin:{pin}` | 15 minutes |
 | Dispatch record | `ss:dispatch:{id}` | 48 hours |
+| Business phone → dispatch ID | `ss:dispatch:by-phone:{phone}` | 30 minutes |
 | Pending claim | `ss:claim:{id}` | 15 minutes |
+| Claim dedup lock | `ss:claim:lock:{placeId}:{phone}` | 15 minutes |
+| SMS opt-out | `ss:sms:optout:{phone}` | permanent |
+| AI Workspace rate limit | `ss:workspace:rl:{phone}` | 1 hour (sliding window) |
 
 Redis keys are **intentionally compatible** with the main ServiceSurfer platform so sessions and smart-match results are shared across both apps.
 
@@ -327,6 +443,9 @@ Redis keys are **intentionally compatible** with the main ServiceSurfer platform
 
 - **Phone numbers are never exposed client-side.** All business phones are wrapped in HMAC-SHA256 signed tokens (`callRef`). The signature is verified server-side before any session is created.
 - **TwiML output is XSS-safe.** All dynamic strings are XML-escaped before being embedded in TwiML responses.
+- **Inbound Twilio SMS webhooks are HMAC-SHA1 verified** against `X-Twilio-Signature` using the Twilio auth token before any dispatch logic runs.
+- **Internal QStash jobs require a bearer token** (`DISPATCH_JOB_SECRET`) to prevent unauthorized queue manipulation.
 - **Call sessions expire in 15 minutes** and PINs are 6 random digits with collision detection.
-- **QStash webhooks are signature-verified** before processing any job payload.
-- **Business claiming codes expire in 15 minutes** and are single-use.
+- **QStash review webhooks are HMAC-SHA256 verified** with current + next key rotation support.
+- **Business claiming codes expire in 15 minutes** with a per-(placeId+phone) dedup lock preventing replay.
+- **AI Workspace is rate-limited** at 20 requests/hour per business phone using a Redis sorted-set sliding window.
