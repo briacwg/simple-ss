@@ -218,12 +218,13 @@ interface CachedSettings {
 async function loadSettings(phone: string): Promise<CachedSettings | null> {
   const sb = getSupabase();
   if (!sb) return null;
+  type SettingsRow = { tone: string; answer_length: string; banned_claims: string[]; required_phrases: string[]; plan_slug: string };
   const { data } = await sb
     .from('business_workspace_settings')
     .select('tone, answer_length, banned_claims, required_phrases, plan_slug')
     .eq('business_phone', phone)
     .single()
-    .catch(() => ({ data: null }));
+    .then(r => r, () => ({ data: null })) as { data: SettingsRow | null };
   if (!data) return null;
   return {
     tone:            (data.tone as WorkspaceTone) || 'friendly',

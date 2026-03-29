@@ -299,7 +299,7 @@ async function verifyTwilioSignature(request: Request): Promise<boolean> {
   const url    = request.url;
   const form   = await request.formData().catch(() => new FormData());
   const params: Record<string, string> = {};
-  for (const [k, v] of form.entries()) params[k] = String(v);
+  for (const [k, v] of (form as unknown as Iterable<[string, FormDataEntryValue]>)) params[k] = String(v);
 
   // Build the string-to-sign: URL + sorted params (key immediately followed by value)
   const sortedKeys = Object.keys(params).sort();

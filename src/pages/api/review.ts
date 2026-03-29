@@ -91,6 +91,9 @@ export const POST: APIRoute = async ({ request }) => {
     dispatch_id:    dispatchId,
     business_phone: record.businessPhone,
     event_type:     'review_received',
+    service_label:  null,
+    location_cell:  null,
+    consumer_phone: null,
     meta:           { rating, comment, businessName: record.businessName },
   }).catch(() => null);
 
