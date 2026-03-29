@@ -50,6 +50,13 @@ create index if not exists idx_dte_business       on public.dispatch_training_ev
 create index if not exists idx_dte_service_label  on public.dispatch_training_events(service_label, location_cell);
 create index if not exists idx_dte_outcome        on public.dispatch_training_events(outcome, supply_level);
 
+-- RLS: service-role writes; business owners read their own rows via JWT claim.
+-- No anonymous access — training data is internal.
+alter table public.dispatch_training_events enable row level security;
+create policy if not exists dte_select_own
+  on public.dispatch_training_events for select
+  using (business_phone = (current_setting('request.jwt.claims', true)::jsonb ->> 'business_phone'));
+
 -- ── Lead Events ───────────────────────────────────────────────────────────────
 --
 -- Tracks consumer touchpoints: searches, calls, video sessions, website clicks.
@@ -75,6 +82,12 @@ create table if not exists public.lead_events (
 create index if not exists idx_le_business_type  on public.lead_events(business_phone, event_type, created_at desc);
 create index if not exists idx_le_dispatch        on public.lead_events(dispatch_id);
 create index if not exists idx_le_created         on public.lead_events(created_at desc);
+
+-- RLS: service-role writes; businesses read their own events.
+alter table public.lead_events enable row level security;
+create policy if not exists le_select_own
+  on public.lead_events for select
+  using (business_phone = (current_setting('request.jwt.claims', true)::jsonb ->> 'business_phone'));
 
 -- ── WebAuthn Passkeys ─────────────────────────────────────────────────────────
 --
@@ -191,3 +204,74 @@ create table if not exists public.business_dashboard_metrics (
   top_service_labels  text[]      not null default '{}'::text[],
   updated_at          timestamptz not null default now()
 );
+
+-- RLS: businesses read only their own metrics row; service-role upserts freely.
+alter table public.business_dashboard_metrics enable row level security;
+create policy if not exists bdm_select_own
+  on public.business_dashboard_metrics for select
+  using (business_phone = (current_setting('request.jwt.claims', true)::jsonb ->> 'business_phone'));
+
+-- ── Utility: refresh dashboard metrics for a business ────────────────────────
+--
+-- Called via Supabase RPC from the dashboard endpoint when cached metrics
+-- are stale.  Aggregates from lead_events + dispatch_training_events over
+-- the last 30 days in a single server-side function call.
+
+create or replace function public.refresh_dashboard_metrics(p_phone text)
+returns void language plpgsql security definer as $$
+declare
+  v_since timestamptz := now() - interval '30 days';
+  v_leads_30d       integer;
+  v_calls_30d       integer;
+  v_dispatches_30d  integer;
+  v_accepted_30d    integer;
+  v_declined_30d    integer;
+  v_timeout_30d     integer;
+  v_avg_response_ms integer;
+  v_top_labels      text[];
+begin
+  select
+    count(*) filter (where event_type = 'dispatch_sent'),
+    count(*) filter (where event_type = 'call_initiated'),
+    count(*) filter (where event_type = 'dispatch_sent'),
+    count(*) filter (where event_type = 'dispatch_accepted'),
+    count(*) filter (where event_type = 'dispatch_declined'),
+    count(*) filter (where event_type = 'dispatch_timeout')
+  into v_leads_30d, v_calls_30d, v_dispatches_30d, v_accepted_30d, v_declined_30d, v_timeout_30d
+  from public.lead_events
+  where business_phone = p_phone and created_at >= v_since;
+
+  select round(avg(response_ms))
+  into v_avg_response_ms
+  from public.dispatch_training_events
+  where business_phone = p_phone and outcome = 'accepted' and created_at >= v_since;
+
+  select array_agg(service_label order by cnt desc)
+  into v_top_labels
+  from (
+    select service_label, count(*) as cnt
+    from public.lead_events
+    where business_phone = p_phone and service_label is not null and created_at >= v_since
+    group by service_label
+    limit 5
+  ) sub;
+
+  insert into public.business_dashboard_metrics
+    (business_phone, leads_30d, calls_30d, dispatches_30d, accepted_30d, declined_30d,
+     timeout_30d, avg_response_ms, top_service_labels, updated_at)
+  values
+    (p_phone, coalesce(v_leads_30d,0), coalesce(v_calls_30d,0), coalesce(v_dispatches_30d,0),
+     coalesce(v_accepted_30d,0), coalesce(v_declined_30d,0), coalesce(v_timeout_30d,0),
+     v_avg_response_ms, coalesce(v_top_labels, '{}'), now())
+  on conflict (business_phone) do update set
+    leads_30d          = excluded.leads_30d,
+    calls_30d          = excluded.calls_30d,
+    dispatches_30d     = excluded.dispatches_30d,
+    accepted_30d       = excluded.accepted_30d,
+    declined_30d       = excluded.declined_30d,
+    timeout_30d        = excluded.timeout_30d,
+    avg_response_ms    = excluded.avg_response_ms,
+    top_service_labels = excluded.top_service_labels,
+    updated_at         = now();
+end;
+$$;
