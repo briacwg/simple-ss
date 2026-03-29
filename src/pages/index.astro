@@ -78,7 +78,7 @@ export const prerender = false;
     .search-send:hover { background:color-mix(in oklab,var(--accent-blue) 82%,var(--text-primary)); transform:scale(1.05); }
     .search-send svg { width:1.1rem; height:1.1rem; }
 
-    /* Quick actions — Call & Video below search bar */
+    /* Quick actions — Call below search bar */
     .quick-actions { display: flex; gap: .6rem; margin-top: .75rem; width: 100%; }
     .qa-btn {
       flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: .45rem;
@@ -93,12 +93,6 @@ export const prerender = false;
       box-shadow: 0 8px 20px rgba(245,158,11,.2);
     }
     .qa-btn--call:hover { background: linear-gradient(135deg,#facc15,#f59e0b); }
-    .qa-btn--video {
-      background: var(--accent-blue); color: white;
-      border: 1px solid color-mix(in oklab,var(--accent-blue) 78%,var(--text-primary));
-      box-shadow: 0 8px 20px rgba(0,150,255,.18);
-    }
-    .qa-btn--video:hover { background: color-mix(in oklab,var(--accent-blue) 82%,var(--text-primary)); }
 
     /* Trending pills */
     .trending { width:min(100%,680px); margin:1.6rem auto 0; }
@@ -298,8 +292,6 @@ export const prerender = false;
       box-shadow:0 10px 22px rgba(245,158,11,.2);
     }
     .action-btn--call:hover { background:linear-gradient(135deg,#facc15,#f59e0b); }
-    .action-btn--video { background:var(--accent-blue); color:white; border:1px solid color-mix(in oklab,var(--accent-blue) 78%,var(--text-primary)); }
-    .action-btn--video:hover { background:color-mix(in oklab,var(--accent-blue) 82%,var(--text-primary)); }
     .action-btn--web {
       background:color-mix(in oklab,var(--bg-primary) 82%,var(--bg-secondary));
       color:var(--accent-blue); border:1px solid color-mix(in oklab,var(--accent-blue) 36%,var(--border-color));
@@ -339,16 +331,12 @@ export const prerender = false;
       </div>
     </div>
 
-    <!-- Call & Video below search bar -->
+    <!-- Call below search bar -->
     <div class="quick-actions">
       <a href="tel:4013862975" class="qa-btn qa-btn--call">
         <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 1.27h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.91a16 16 0 0 0 6.29 6.29l1.42-1.42a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
         Call ServiceSurfer
       </a>
-      <button class="qa-btn qa-btn--video" id="global-video" type="button">
-        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-        Video Consult
-      </button>
     </div>
   </div>
 
@@ -429,7 +417,6 @@ export const prerender = false;
     input.value = p.dataset.q;
     search(p.dataset.q);
   }));
-  document.getElementById('global-video')?.addEventListener('click', () => doVideo('', lastQuery, null));
 
   // ── Search ───────────────────────────────────────────────────────────────────
   // fromInput=true: called from the auto-search listener — don't overwrite the
@@ -489,12 +476,6 @@ export const prerender = false;
           btn.addEventListener('click', () => {
             const b = lastBusinesses[+btn.dataset.callIdx];
             if (b) doCall(b.callRef, b.name, btn);
-          });
-        });
-        resultsEl.querySelectorAll('[data-video-idx]').forEach(btn => {
-          btn.addEventListener('click', () => {
-            const b = lastBusinesses[+btn.dataset.videoIdx];
-            if (b) doVideo(b.name, lastQuery, btn);
           });
         });
         // ── Layer 3: "Why this business" — instant if cached, async otherwise ──
@@ -604,11 +585,6 @@ export const prerender = false;
         <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 1.27h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.91a16 16 0 0 0 6.29 6.29l1.42-1.42a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
         <span>Call now</span>
       </button>` : '';
-    const videoHtml = `
-      <button class="action-btn action-btn--video" data-video-idx="${rank}">
-        <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-        <span>Video</span>
-      </button>`;
     const webHtml = b.website ? `
       <a class="action-btn action-btn--web" href="${esc(b.website)}" target="_blank" rel="noopener">
         <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
@@ -639,7 +615,7 @@ export const prerender = false;
           </div>
           <div class="scard-actions">
             ${callHtml}
-            <div class="scard-actions-row">${videoHtml}${webHtml}${directionsHtml}</div>
+            <div class="scard-actions-row">${webHtml}${directionsHtml}</div>
           </div>
         </div>
       </article>`;
@@ -658,21 +634,6 @@ export const prerender = false;
       window.location.href = telHref;
       btn.disabled = false; btn.innerHTML = orig;
     } catch { btn.disabled = false; btn.innerHTML = orig; alert('Could not connect. Try again.'); }
-  }
-
-  // ── Video flow ───────────────────────────────────────────────────────────────
-  async function doVideo(businessName, problem, btn) {
-    const orig = btn?.innerHTML;
-    if (btn) { btn.disabled = true; btn.innerHTML = btn.innerHTML.replace(/<span>.*?<\/span>/, '<span>Starting…</span>'); }
-    try {
-      const { sessionUrl, error } = await fetch('/api/video', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businessName, problem }),
-      }).then(r => r.json());
-      if (error || !sessionUrl) { alert('Video unavailable right now.'); if (btn) { btn.disabled = false; btn.innerHTML = orig; } return; }
-      window.open(sessionUrl, '_blank');
-      if (btn) { btn.disabled = false; btn.innerHTML = orig; }
-    } catch { if (btn) { btn.disabled = false; btn.innerHTML = orig; } alert('Video unavailable right now.'); }
   }
 
   function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
