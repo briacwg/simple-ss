@@ -23,7 +23,7 @@ Browser (results cards)               ├─ GET /api/dashboard     → 30d metr
   │  user taps "Call" or "Send request"
   ▼
 POST /api/call                          POST /api/dispatch (supply-adaptive)
-  ├─ resolveCallRef() — HMAC verify       ├─ reRankByAcceptance() — 4-signal composite score
+  ├─ resolveCallRef() — HMAC verify       ├─ reRankByAcceptance() — 5-signal composite score
   ├─ createCallSession() — PIN + token    ├─ scoreLeadUrgency() — urgency prefix
   └─ returns telHref: tel:BRIDGE,PIN      ├─ notify 1–3 businesses simultaneously
   │                                       ├─ QStash 5-min timeout per business
@@ -118,12 +118,13 @@ POST /api/review
 ### Flow 2 — Supply-Adaptive Dispatch Loop
 
 1. `POST /api/dispatch` receives the consumer request + ranked business list.
-2. **`reRankByAcceptance()` (v3)** re-orders candidates using four signals fetched in parallel from Supabase:
-   - **Acceptance-rate multiplier** `[0.6→1.4]` — precision-weighted blend of specific (same service + location cell) and general acceptance rates.
+2. **`reRankByAcceptance()` (v3)** re-orders candidates using five signals:
+   - **Acceptance-rate multiplier** `[0.6→1.4]` — precision-weighted blend of specific (same service + location cell) and general acceptance rates fetched from `dispatch_training_events`.
    - **Review quality multiplier** `[0.85→1.15]` — average star rating from `lead_events`, applied once ≥ 3 reviews exist.
    - **Temporal multiplier** `[0.90→1.10]` — acceptance rate in the current 3-hour UTC bucket vs overall; boosts businesses active right now.
    - **Response-time multiplier** `[0.95→1.05]` — normalised average accepted `response_ms` (faster = higher); predicts dispatch-window compliance.
-   - Falls back to the original Google Places order if Supabase is unavailable.
+   - **Google Places rank signal** `[0.0→0.3 contribution]` — preserves the original Places ranking as a tie-breaker when training data is sparse.
+   - The four Supabase queries run in parallel with a 1.5 s timeout each; falls back to the original Google Places order if Supabase is unavailable.
 3. **Supply level** is computed from the number of available businesses:
    - `high` (≥4): notify top 1 only — quality over quantity
    - `normal` (2–3): notify top 2 simultaneously
@@ -317,6 +318,8 @@ Twilio voice webhook — handles both outbound click-to-call and inbound PIN-bas
 
 ### `POST /api/dispatch`
 Supply-adaptive lead dispatch — notifies 1–3 businesses based on local supply level.
+
+**Rate limit:** 20 requests per minute per IP (Redis sliding window). Returns `429` on excess.
 
 **Request body**
 ```json
@@ -807,6 +810,7 @@ vercel deploy
 | Stripe webhook event dedup | `ss:stripe:event:{event_id}` | 24 hours |
 | Website summary | `sr:place:v1:{placeId}:website_summary:{hex12}` | 30 days |
 | Summarize rate limit | `ss:summarize:rl:{ip}` | 60 seconds (sliding window) |
+| Dispatch rate limit | `ss:dispatch:rl:{ip}` | 60 seconds (sliding window) |
 
 Redis keys are **intentionally compatible** with the main ServiceSurfer platform so sessions and smart-match results are shared across both apps.
 
@@ -822,6 +826,7 @@ Redis keys are **intentionally compatible** with the main ServiceSurfer platform
 - **QStash review webhooks are HMAC-SHA256 verified** with current + next key rotation support.
 - **Business claiming codes expire in 15 minutes** with a per-(placeId+phone) dedup lock preventing replay.
 - **AI Workspace is rate-limited** at 20 requests/hour per business phone using a Redis sorted-set sliding window.
+- **Dispatch is rate-limited** at 20 requests/minute per IP (in addition to the 5-minute per-consumer dedup guard) to prevent SMS-flood abuse via rapid callRef cycling.
 - **Passkey challenges expire in 5 minutes** and are single-use (marked `used_at` on successful verification) to prevent replay attacks.
 - **Session tokens are HMAC-SHA256 signed** (payload: `userId.exp`) with `BUSINESS_JWT_SECRET` and carry a 24-hour expiry.
 - **Credential counters are bumped** on every authentication to detect cloned authenticators.
