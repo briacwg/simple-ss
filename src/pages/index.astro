@@ -315,17 +315,6 @@ export const prerender = false;
       background: rgba(22,163,74,.08); color: #15803d;
       border-color: rgba(22,163,74,.28); pointer-events: none;
     }
-    .action-btn--request {
-      background: color-mix(in oklab,var(--accent-blue) 9%,var(--bg-primary));
-      color: var(--accent-blue);
-      border: 1px solid color-mix(in oklab,var(--accent-blue) 30%,var(--border-color));
-      font-weight: 600;
-    }
-    .action-btn--request:hover { background: color-mix(in oklab,var(--accent-blue) 15%,var(--bg-primary)); }
-    .action-btn--request--sent {
-      background: rgba(22,163,74,.08); color: #15803d;
-      border-color: rgba(22,163,74,.28); pointer-events: none; cursor: default;
-    }
   </style>
 </head>
 <body>
@@ -630,11 +619,6 @@ export const prerender = false;
         <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
         <span>Directions</span>
       </a>` : '';
-    const requestHtml = b.callRef ? `
-      <button class="action-btn action-btn--request" data-dispatch-idx="${rank}" id="req-btn-${rank}" aria-label="Send a service request to ${esc(b.name)}">
-        <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
-        <span>Send request</span>
-      </button>` : '';
     return `
       <article class="scard${isBest ? ' scard--spotlight' : ''}">
         <div class="scard-inner">
@@ -655,7 +639,6 @@ export const prerender = false;
           </div>
           <div class="scard-actions">
             ${callHtml}
-            ${requestHtml}
             <div class="scard-actions-row">${videoHtml}${webHtml}${directionsHtml}</div>
           </div>
         </div>
