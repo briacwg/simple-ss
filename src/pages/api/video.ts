@@ -1,3 +1,13 @@
+/**
+ * POST /api/video
+ *
+ * Proxies a video consultation session creation request to the
+ * video.servicesurfer.app microservice and returns the session URL.
+ *
+ * A unique `callSessionId` is generated on each request so the video service
+ * can correlate the session back to the originating consumer request.
+ */
+
 import type { APIRoute } from 'astro';
 
 export const prerender = false;
@@ -11,10 +21,14 @@ export const POST: APIRoute = async ({ request }) => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      // Unique ID to correlate this session in the video service's logs
       callSessionId: `ss_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       problem: String(problem).slice(0, 180) || 'Need help with a local service issue',
       location: String(location).slice(0, 120) || undefined,
-      voiceContext: { source: 'simple-ss', businessName: String(businessName).slice(0, 180) || undefined },
+      voiceContext: {
+        source: 'simple-ss',
+        businessName: String(businessName).slice(0, 180) || undefined,
+      },
     }),
   }).catch(() => null);
 
@@ -25,4 +39,5 @@ export const POST: APIRoute = async ({ request }) => {
   return json({ sessionUrl: data.link });
 };
 
-const json = (d: unknown, s = 200) => new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } });
+const json = (d: unknown, s = 200) =>
+  new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } });
