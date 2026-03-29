@@ -54,24 +54,37 @@ export async function sendSms(
     return { ok: false, error: 'Twilio credentials not configured' };
   }
 
-  try {
-    const res = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
-      {
+  const endpoint = `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`;
+  const auth     = `Basic ${btoa(`${sid}:${token}`)}`;
+  const payload  = new URLSearchParams({ To: to, From: from_, Body: body }).toString();
+
+  // Retry up to 2 times on transient failures (network errors or Twilio 5xx).
+  // 4xx errors (bad number, invalid credentials, etc.) are not retried.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      // Exponential backoff: 200ms, 400ms
+      await new Promise(resolve => setTimeout(resolve, 200 * 2 ** (attempt - 1)));
+    }
+    try {
+      const res  = await fetch(endpoint, {
         method:  'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Authorization:  `Basic ${btoa(`${sid}:${token}`)}`,
-        },
-        body: new URLSearchParams({ To: to, From: from_, Body: body }).toString(),
-      },
-    );
-    const data = await res.json() as Record<string, unknown>;
-    if (!res.ok) return { ok: false, error: String(data.message ?? data.code ?? res.status) };
-    return { ok: true, sid: data.sid as string };
-  } catch (e) {
-    return { ok: false, error: String(e) };
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: auth },
+        body:    payload,
+      });
+      const data = await res.json() as Record<string, unknown>;
+      if (res.ok) return { ok: true, sid: data.sid as string };
+      // Don't retry client-side errors (wrong number, permission issues, etc.)
+      if (res.status >= 400 && res.status < 500) {
+        return { ok: false, error: String(data.message ?? data.code ?? res.status) };
+      }
+      // 5xx — fall through to retry
+      if (attempt === 2) return { ok: false, error: String(data.message ?? data.code ?? res.status) };
+    } catch (e) {
+      if (attempt === 2) return { ok: false, error: String(e) };
+    }
   }
+
+  return { ok: false, error: 'max retries exceeded' };
 }
 
 // ── Pre-built message composers ───────────────────────────────────────────────
