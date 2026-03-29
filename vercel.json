@@ -6,18 +6,6 @@
 
   "regions": ["iad1"],
 
-  "functions": {
-    "src/pages/api/**/*.[jt]s": {
-      "maxDuration": 30
-    },
-    "src/pages/api/match.ts": {
-      "maxDuration": 15
-    },
-    "src/pages/api/workspace.ts": {
-      "maxDuration": 15
-    }
-  },
-
   "headers": [
     {
       "source": "/api/(.*)",
