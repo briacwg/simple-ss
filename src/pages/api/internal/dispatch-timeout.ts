@@ -15,6 +15,7 @@ import { redis } from '../../../lib';
 import { DK, BPDK, DISPATCH_TTL, type DispatchRecord } from '../dispatch';
 import { advanceQueue } from '../webhooks/sms-inbound';
 import { logTrainingEvent, logLeadEvent } from '../../../lib/supabase';
+import { json, err } from '../../../lib/api-helpers';
 
 export const prerender = false;
 
@@ -97,6 +98,3 @@ export const POST: APIRoute = async ({ request }) => {
   return json({ ok: true, advanced: true });
 };
 
-const json = (d: unknown, s = 200) =>
-  new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } });
-const err = (m: string, s: number) => json({ error: m }, s);

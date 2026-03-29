@@ -14,6 +14,7 @@
 
 import type { APIRoute } from 'astro';
 import { resolveCallRef, createCallSession, bridgeNumber } from '../../lib';
+import { json, err } from '../../lib/api-helpers';
 
 export const prerender = false;
 
@@ -34,5 +35,3 @@ export const POST: APIRoute = async ({ request }) => {
   return json({ telHref: `tel:${dial},${session.pin}` });
 };
 
-const json = (d: unknown, s = 200) =>
-  new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } });

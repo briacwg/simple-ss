@@ -23,6 +23,7 @@
 import type { APIRoute } from 'astro';
 import { redis } from '../../lib';
 import { getWebsiteSummary } from '../../lib/website-summary';
+import { json, err } from '../../lib/api-helpers';
 
 export const prerender = false;
 
@@ -73,6 +74,3 @@ export const POST: APIRoute = async ({ request }) => {
 
 // ── Response helpers ──────────────────────────────────────────────────────────
 
-const json = (d: unknown, s = 200) =>
-  new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } });
-const err = (m: string, s: number) => json({ error: m }, s);

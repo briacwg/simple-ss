@@ -20,6 +20,7 @@
 import type { APIRoute } from 'astro';
 import { redis } from '../../../lib';
 import type { PendingClaim } from '../claim';
+import { json, err } from '../../../lib/api-helpers';
 
 export const prerender = false;
 
@@ -79,6 +80,3 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-const json = (d: unknown, s = 200) =>
-  new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } });
-const err = (m: string, s: number) => json({ error: m }, s);

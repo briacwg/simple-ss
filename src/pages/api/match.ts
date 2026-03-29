@@ -26,6 +26,7 @@ import type { APIRoute } from 'astro';
 import { smartMatch, searchPlaces, redis } from '../../lib';
 import { inferServiceIntentHint, inferDiagnosisHint } from '../../lib/intent';
 import { scoreLeadUrgency } from '../../lib/lead-score';
+import { json, err } from '../../lib/api-helpers';
 
 export const prerender = false;
 
@@ -114,6 +115,3 @@ export const POST: APIRoute = async ({ request }) => {
   return json(result);
 };
 
-const json = (d: unknown, s = 200) =>
-  new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } });
-const err = (m: string, s: number) => json({ error: m }, s);

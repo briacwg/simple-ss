@@ -24,6 +24,7 @@ import { reRankByAcceptance } from '../../lib/smart-rank';
 import { scoreLeadUrgency, urgencySmsPrefix } from '../../lib/lead-score';
 import { scheduleDispatchTimeout as qScheduleTimeout, scheduleReviewFollowup as qScheduleReview } from '../../lib/qstash';
 import { sendLeadSms as twilioSendLeadSms } from '../../lib/twilio';
+import { json, err } from '../../lib/api-helpers';
 
 export const prerender = false;
 
@@ -297,6 +298,3 @@ async function scheduleReviewFollowup(dispatchId: string): Promise<void> {
 
 // ── Response helpers ──────────────────────────────────────────────────────────
 
-const json = (d: unknown, s = 200) =>
-  new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } });
-const err = (m: string, s: number) => json({ error: m }, s);

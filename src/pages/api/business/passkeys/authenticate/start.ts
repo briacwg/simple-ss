@@ -16,6 +16,7 @@ import type { APIRoute } from 'astro';
 import { generateAuthenticationOptions } from '@simplewebauthn/server';
 import type { AuthenticatorTransportFuture } from '@simplewebauthn/types';
 import { getSupabase } from '../../../../../lib/supabase';
+import { json, err } from '../../../../../lib/api-helpers';
 
 export const prerender = false;
 
@@ -72,6 +73,3 @@ export const POST: APIRoute = async ({ request }) => {
   return json({ ...options, _challenge: options.challenge });
 };
 
-const json = (d: unknown, s = 200) =>
-  new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } });
-const err = (m: string, s: number) => json({ error: m }, s);

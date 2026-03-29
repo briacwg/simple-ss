@@ -9,6 +9,7 @@
  */
 
 import type { APIRoute } from 'astro';
+import { json } from '../../lib/api-helpers';
 
 export const prerender = false;
 
@@ -39,5 +40,3 @@ export const POST: APIRoute = async ({ request }) => {
   return json({ sessionUrl: data.link });
 };
 
-const json = (d: unknown, s = 200) =>
-  new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } });

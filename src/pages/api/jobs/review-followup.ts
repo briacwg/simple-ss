@@ -17,6 +17,7 @@ import { redis } from '../../../lib';
 import type { DispatchRecord } from '../dispatch';
 import { verifyQStashSignature } from '../../../lib/qstash';
 import { sendReviewRequestSms } from '../../../lib/twilio';
+import { json, err } from '../../../lib/api-helpers';
 
 export const prerender = false;
 
@@ -65,6 +66,3 @@ export const POST: APIRoute = async ({ request }) => {
 
 // ── Response helpers ──────────────────────────────────────────────────────────
 
-const json = (d: unknown, s = 200) =>
-  new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } });
-const err = (m: string, s: number) => json({ error: m }, s);

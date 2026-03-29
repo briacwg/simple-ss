@@ -30,6 +30,7 @@
 import type { APIRoute } from 'astro';
 import { getBusinessSession } from '../../../../lib/session';
 import { getSupabase } from '../../../../lib/supabase';
+import { json, err } from '../../../../lib/api-helpers';
 
 export const prerender = false;
 
@@ -61,6 +62,3 @@ export const GET: APIRoute = async ({ request }) => {
   return json({ passkeys });
 };
 
-const json = (d: unknown, s = 200) =>
-  new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } });
-const err = (m: string, s: number) => json({ error: m }, s);

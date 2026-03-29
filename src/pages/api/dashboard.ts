@@ -24,6 +24,7 @@ import type { APIRoute } from 'astro';
 import { normalizePhone } from '../../lib';
 import { getSupabase } from '../../lib/supabase';
 import { getBusinessSession } from '../../lib/session';
+import { json, err } from '../../lib/api-helpers';
 
 export const prerender = false;
 
@@ -153,6 +154,3 @@ function computeRate(m: { accepted_30d: number; declined_30d: number; timeout_30
   return Math.round((m.accepted_30d / total) * 1000) / 10; // percentage, 1 decimal place
 }
 
-const json = (d: unknown, s = 200) =>
-  new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } });
-const err = (m: string, s: number) => json({ error: m }, s);

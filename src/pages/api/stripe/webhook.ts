@@ -32,6 +32,7 @@
 
 import type { APIRoute } from 'astro';
 import { getSupabase } from '../../../lib/supabase';
+import { json, err } from '../../../lib/api-helpers';
 
 export const prerender = false;
 
@@ -195,6 +196,3 @@ interface StripeSubscription {
 
 // ── Response helpers ──────────────────────────────────────────────────────────
 
-const json = (d: unknown, s = 200) =>
-  new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } });
-const err = (m: string, s: number) => json({ error: m }, s);

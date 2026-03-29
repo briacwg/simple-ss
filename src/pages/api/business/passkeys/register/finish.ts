@@ -19,6 +19,7 @@ import type { APIRoute } from 'astro';
 import { verifyRegistrationResponse } from '@simplewebauthn/server';
 import type { RegistrationResponseJSON } from '@simplewebauthn/types';
 import { getSupabase } from '../../../../../lib/supabase';
+import { json } from '../../../../../lib/api-helpers';
 
 export const prerender = false;
 
@@ -106,6 +107,4 @@ export const POST: APIRoute = async ({ request }) => {
   return json({ verified: true, credentialId: credential.id });
 };
 
-const json = (d: unknown, s = 200) =>
-  new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } });
 const err = (m: string, s: number) => json({ error: m, verified: false }, s);
