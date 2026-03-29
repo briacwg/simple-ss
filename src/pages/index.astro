@@ -497,13 +497,6 @@ export const prerender = false;
             if (b) doVideo(b.name, lastQuery, btn);
           });
         });
-        resultsEl.querySelectorAll('[data-dispatch-idx]').forEach(btn => {
-          btn.addEventListener('click', () => {
-            const b = lastBusinesses[+btn.dataset.dispatchIdx];
-            if (b) doDispatch(b, lastBusinesses.slice(1), btn);
-          });
-        });
-
         // ── Layer 3: "Why this business" — instant if cached, async otherwise ──
         top3.forEach((b, i) => {
           const whyEl  = document.getElementById(`why-${i}`);
@@ -621,11 +614,11 @@ export const prerender = false;
         <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
         <span>Website</span>
       </a>` : '';
-    const dispatchHtml = b.callRef ? `
-      <button class="action-btn action-btn--dispatch" data-dispatch-idx="${rank}" title="Notify this pro about your request — they'll reply YES to claim it">
-        <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-        <span>Send request</span>
-      </button>` : '';
+    const directionsHtml = b.address ? `
+      <a class="action-btn action-btn--dispatch" href="${esc(mapsUrl(b.address))}" target="_blank" rel="noopener" title="Get directions to ${esc(b.name)}">
+        <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+        <span>Directions</span>
+      </a>` : '';
     return `
       <article class="scard${isBest ? ' scard--spotlight' : ''}">
         <div class="scard-inner">
@@ -646,7 +639,7 @@ export const prerender = false;
           </div>
           <div class="scard-actions">
             ${callHtml}
-            <div class="scard-actions-row">${videoHtml}${webHtml}${dispatchHtml}</div>
+            <div class="scard-actions-row">${videoHtml}${webHtml}${directionsHtml}</div>
           </div>
         </div>
       </article>`;
@@ -682,50 +675,20 @@ export const prerender = false;
     } catch { if (btn) { btn.disabled = false; btn.innerHTML = orig; } alert('Video unavailable right now.'); }
   }
 
-  // ── Dispatch flow (supply-adaptive SMS to pros) ──────────────────────────────
-  async function doDispatch(primaryBusiness, otherBusinesses, btn) {
-    const orig = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = btn.innerHTML.replace(/<span>.*?<\/span>/, '<span>Sending…</span>');
-
-    const consumerPhone = sessionStorage.getItem('ss_consumer_phone') ||
-      prompt('Enter your phone number to get notified when a pro accepts (optional):') || '';
-    if (consumerPhone) sessionStorage.setItem('ss_consumer_phone', consumerPhone);
-
-    const additional = otherBusinesses
-      .filter(b => b.callRef)
-      .slice(0, 5)
-      .map(b => ({ callRef: b.callRef, name: b.name }));
-
-    try {
-      const res = await fetch('/api/dispatch', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          callRef:              primaryBusiness.callRef,
-          businessName:         primaryBusiness.name,
-          problem:              lastQuery,
-          location:             locLabel?.textContent || '',
-          consumerPhone:        consumerPhone || undefined,
-          additionalBusinesses: additional,
-          serviceLabel:         lastLabel || undefined,
-          lat, lng,
-        }),
-      }).then(r => r.json());
-
-      if (res.dispatchId) {
-        btn.classList.add('action-btn--dispatch--sent');
-        btn.innerHTML = '<svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><span>Request sent!</span>';
-      } else {
-        btn.disabled = false; btn.innerHTML = orig;
-        alert('Could not send request. Please try calling instead.');
-      }
-    } catch {
-      btn.disabled = false; btn.innerHTML = orig;
-      alert('Could not send request. Please try calling instead.');
-    }
-  }
-
   function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  /**
+   * Returns a maps deep-link for an address.
+   * - iPhone/iPad: maps:// scheme opens Apple Maps app directly
+   * - Everything else: Google Maps directions URL
+   */
+  function mapsUrl(address) {
+    const encoded = encodeURIComponent(address);
+    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    return isIOS
+      ? `maps://maps.apple.com/?daddr=${encoded}`
+      : `https://www.google.com/maps/dir/?api=1&destination=${encoded}`;
+  }
 </script>
 </body>
 </html>
