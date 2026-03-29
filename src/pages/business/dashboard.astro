@@ -1,0 +1,634 @@
+---
+export const prerender = false;
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>ServiceSurfer — Business Dashboard</title>
+  <meta name="description" content="30-day performance metrics, AI Workspace settings, and passkey management." />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+  <style>
+    :root {
+      --bg: #ffffff; --bg2: #f9fafb; --bg3: #f3f4f6;
+      --text: #111827; --text2: #374151; --text3: #6b7280;
+      --border: #e5e7eb; --accent: #0096FF; --accent-dark: #0077cc;
+      --green: #16a34a; --red: #dc2626; --amber: #d97706;
+      --radius: 12px; --shadow: rgba(0,0,0,.06);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111827; --bg2: #1f2937; --bg3: #374151;
+        --text: #f9fafb; --text2: #e5e7eb; --text3: #9ca3af;
+        --border: #374151; --shadow: rgba(0,0,0,.4);
+      }
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      min-height: 100svh;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background: var(--bg); color: var(--text);
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── Top nav ── */
+    .topnav {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 24px; border-bottom: 1px solid var(--border);
+      background: var(--bg2); position: sticky; top: 0; z-index: 10;
+    }
+    .topnav-logo {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: var(--accent); display: flex; align-items: center;
+      justify-content: center; font-size: 16px; flex-shrink: 0;
+    }
+    .topnav-name { font-weight: 700; font-size: 16px; letter-spacing: -.2px; }
+    .topnav-sub  { font-size: 11px; color: var(--text3); }
+    .topnav-spacer { flex: 1; }
+    .topnav-phone { font-size: 13px; color: var(--text3); }
+    .signout-btn {
+      font-size: 13px; color: var(--text3);
+      background: none; border: 1px solid var(--border);
+      border-radius: 8px; padding: 6px 12px; cursor: pointer;
+      font-weight: 500;
+    }
+    .signout-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Page layout ── */
+    .page { max-width: 960px; margin: 0 auto; padding: 32px 20px 60px; }
+
+    /* ── Section headers ── */
+    .section-title {
+      font-size: 18px; font-weight: 700; margin-bottom: 16px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .section-divider { margin: 36px 0 28px; border: none; border-top: 1px solid var(--border); }
+
+    /* ── Metrics grid ── */
+    .metrics-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px;
+      margin-bottom: 20px;
+    }
+    .metric-card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px 16px;
+    }
+    .metric-card__label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; }
+    .metric-card__value { font-size: 28px; font-weight: 700; margin-top: 4px; line-height: 1; }
+    .metric-card__sub   { font-size: 12px; color: var(--text3); margin-top: 4px; }
+    .metric-card--accent .metric-card__value { color: var(--accent); }
+    .metric-card--green  .metric-card__value { color: var(--green); }
+    .metric-card--red    .metric-card__value { color: var(--red); }
+    .metric-card--amber  .metric-card__value { color: var(--amber); }
+
+    /* ── Top services pills ── */
+    .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .pill {
+      padding: 4px 12px; border-radius: 99px;
+      background: var(--bg3); font-size: 13px; color: var(--text2); font-weight: 500;
+    }
+
+    /* ── Acceptance rate bar ── */
+    .rate-wrap { margin-top: 6px; }
+    .rate-bar-bg {
+      height: 8px; background: var(--bg3); border-radius: 4px; overflow: hidden;
+    }
+    .rate-bar-fill {
+      height: 8px; border-radius: 4px; background: var(--green);
+      transition: width .6s ease;
+    }
+    .rate-label { font-size: 13px; color: var(--text3); margin-top: 4px; }
+
+    /* ── Loading skeleton ── */
+    .skel {
+      background: linear-gradient(90deg, var(--bg3) 25%, var(--bg2) 50%, var(--bg3) 75%);
+      background-size: 200% 100%; border-radius: 6px;
+      animation: skel-shimmer 1.4s infinite;
+    }
+    @keyframes skel-shimmer { to { background-position: -200% 0; } }
+
+    /* ── Workspace settings form ── */
+    .settings-grid { display: grid; gap: 18px; }
+    .field { }
+    .field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text2); }
+    .field-hint  { font-size: 12px; color: var(--text3); margin-top: 4px; }
+    .field select, .field input[type="text"], .field textarea {
+      width: 100%; padding: 10px 14px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 14px;
+      outline: none; font-family: inherit;
+    }
+    .field select:focus, .field input:focus, .field textarea:focus {
+      border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,150,255,.12);
+    }
+    .field textarea { resize: vertical; min-height: 80px; }
+    .checkbox-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 14px; border: 1px solid var(--border);
+      border-radius: 8px; background: var(--bg); cursor: pointer;
+    }
+    .checkbox-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+    .checkbox-row span { font-size: 14px; }
+    .checkbox-row small { font-size: 12px; color: var(--text3); display: block; margin-top: 2px; }
+    .save-btn {
+      padding: 11px 24px; background: var(--accent); color: #fff;
+      border: none; border-radius: 8px; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: background .15s;
+    }
+    .save-btn:hover    { background: var(--accent-dark); }
+    .save-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .save-status {
+      font-size: 13px; padding: 8px 14px; border-radius: 8px;
+      display: none;
+    }
+    .save-status.show     { display: inline-block; }
+    .save-status--success { background: rgba(22,163,74,.1);  color: var(--green); }
+    .save-status--error   { background: rgba(220,38,38,.08); color: var(--red); }
+    .inline-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+    /* ── Passkey list ── */
+    .passkey-list { list-style: none; display: grid; gap: 8px; }
+    .passkey-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 16px; border: 1px solid var(--border);
+      border-radius: 10px; background: var(--bg2);
+    }
+    .passkey-item__icon { font-size: 22px; flex-shrink: 0; }
+    .passkey-item__name { font-size: 14px; font-weight: 600; }
+    .passkey-item__meta { font-size: 12px; color: var(--text3); }
+    .passkey-item__spacer { flex: 1; }
+    .revoke-btn {
+      font-size: 12px; padding: 5px 10px;
+      border: 1px solid var(--border); border-radius: 6px;
+      background: none; color: var(--red); cursor: pointer; font-weight: 600;
+    }
+    .revoke-btn:hover { background: rgba(220,38,38,.06); }
+
+    /* ── Alert banner ── */
+    .auth-banner {
+      padding: 14px 20px; border-radius: 10px;
+      background: rgba(220,38,38,.08); color: var(--red);
+      border: 1px solid rgba(220,38,38,.2); font-size: 14px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .auth-banner a { color: var(--red); font-weight: 600; text-decoration: underline; }
+
+    /* ── Responsive ── */
+    @media (max-width: 480px) {
+      .topnav { padding: 12px 16px; }
+      .page { padding: 20px 14px 48px; }
+      .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <nav class="topnav">
+    <div class="topnav-logo">🌊</div>
+    <div>
+      <div class="topnav-name">ServiceSurfer</div>
+      <div class="topnav-sub">Business Dashboard</div>
+    </div>
+    <div class="topnav-spacer"></div>
+    <span class="topnav-phone" id="nav-phone"></span>
+    <button class="signout-btn" id="signout-btn" type="button">Sign out</button>
+  </nav>
+
+  <main class="page" id="main-page">
+    <!-- Auth check placeholder -->
+    <div id="auth-gate" class="auth-banner" style="display:none;">
+      <i class="bi bi-exclamation-triangle-fill"></i>
+      <span>Session expired. <a href="/business">Sign in again</a></span>
+    </div>
+
+    <!-- ── 30-day metrics ──────────────────────────────────────────── -->
+    <div id="metrics-section">
+      <div class="section-title">
+        <i class="bi bi-bar-chart-line-fill" style="color:var(--accent)"></i>
+        30-Day Performance
+        <span id="metrics-cached-badge" style="font-size:11px;font-weight:400;color:var(--text3);margin-left:4px;"></span>
+      </div>
+      <div class="metrics-grid" id="metrics-grid">
+        <!-- Skeleton -->
+        <div class="metric-card"><div class="skel" style="height:16px;width:70%;margin-bottom:8px;"></div><div class="skel" style="height:30px;width:50%;"></div></div>
+        <div class="metric-card"><div class="skel" style="height:16px;width:60%;margin-bottom:8px;"></div><div class="skel" style="height:30px;width:40%;"></div></div>
+        <div class="metric-card"><div class="skel" style="height:16px;width:80%;margin-bottom:8px;"></div><div class="skel" style="height:30px;width:55%;"></div></div>
+        <div class="metric-card"><div class="skel" style="height:16px;width:65%;margin-bottom:8px;"></div><div class="skel" style="height:30px;width:45%;"></div></div>
+        <div class="metric-card"><div class="skel" style="height:16px;width:70%;margin-bottom:8px;"></div><div class="skel" style="height:30px;width:50%;"></div></div>
+        <div class="metric-card"><div class="skel" style="height:16px;width:60%;margin-bottom:8px;"></div><div class="skel" style="height:30px;width:40%;"></div></div>
+      </div>
+      <div id="rate-section" style="margin-top:4px;display:none;">
+        <div class="rate-wrap">
+          <div class="rate-bar-bg"><div class="rate-bar-fill" id="rate-fill" style="width:0%"></div></div>
+          <div class="rate-label" id="rate-label"></div>
+        </div>
+      </div>
+      <div id="top-services-section" style="margin-top:16px;display:none;">
+        <div style="font-size:13px;font-weight:600;color:var(--text3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px;">Top service categories</div>
+        <div class="pill-row" id="top-services-pills"></div>
+      </div>
+    </div>
+
+    <hr class="section-divider" />
+
+    <!-- ── AI Workspace settings ──────────────────────────────────── -->
+    <div id="workspace-section">
+      <div class="section-title">
+        <i class="bi bi-cpu-fill" style="color:var(--accent)"></i>
+        AI Workspace Settings
+      </div>
+      <form class="settings-grid" id="workspace-form" autocomplete="off">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div class="field">
+            <label for="ws-tone">Response tone</label>
+            <select id="ws-tone" name="tone">
+              <option value="friendly">Friendly</option>
+              <option value="premium">Premium</option>
+              <option value="direct">Direct</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="ws-length">Answer length</label>
+            <select id="ws-length" name="answer_length">
+              <option value="short">Short</option>
+              <option value="balanced">Balanced</option>
+              <option value="detailed">Detailed</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="ws-banned">Banned claims <span style="font-weight:400;color:var(--text3)">(one per line)</span></label>
+          <textarea id="ws-banned" name="banned_claims" placeholder="e.g.&#10;cheapest in town&#10;100% guaranteed"></textarea>
+          <div class="field-hint">AI responses will avoid these phrases and flag them for review.</div>
+        </div>
+
+        <div class="field">
+          <label for="ws-required">Required phrases <span style="font-weight:400;color:var(--text3)">(one per line)</span></label>
+          <textarea id="ws-required" name="required_phrases" placeholder="e.g.&#10;licensed and insured&#10;free estimate"></textarea>
+          <div class="field-hint">AI will include these phrases when missing from generated responses.</div>
+        </div>
+
+        <div class="field">
+          <label for="ws-knowledge">Knowledge URLs <span style="font-weight:400;color:var(--text3)">(one per line)</span></label>
+          <textarea id="ws-knowledge" name="knowledge_urls" placeholder="e.g.&#10;https://yoursite.com/services&#10;https://yoursite.com/faq"></textarea>
+          <div class="field-hint">AI Workspace crawls these pages to answer customer questions.</div>
+        </div>
+
+        <div class="field">
+          <label for="ws-starters">Starter questions <span style="font-weight:400;color:var(--text3)">(one per line)</span></label>
+          <textarea id="ws-starters" name="starter_questions" placeholder="e.g.&#10;What areas do you serve?&#10;Do you offer emergency service?"></textarea>
+          <div class="field-hint">Suggested questions shown to customers before they type.</div>
+        </div>
+
+        <div style="display:grid;gap:10px;">
+          <label class="checkbox-row">
+            <input type="checkbox" id="ws-collect-lead" name="collect_lead_details" />
+            <div>
+              <span>Collect lead details</span>
+              <small>Ask customers for name, address, and best contact time.</small>
+            </div>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="ws-escalate-call" name="escalate_to_call" />
+            <div>
+              <span>Escalate to call</span>
+              <small>Offer a PSTN call when AI cannot resolve the customer's question.</small>
+            </div>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="ws-escalate-video" name="escalate_to_video" />
+            <div>
+              <span>Escalate to video</span>
+              <small>Offer a video call for visual diagnostics (requires Video add-on).</small>
+            </div>
+          </label>
+        </div>
+
+        <div class="inline-row">
+          <button class="save-btn" type="submit" id="save-btn">Save settings</button>
+          <span class="save-status" id="save-status"></span>
+        </div>
+      </form>
+    </div>
+
+    <hr class="section-divider" />
+
+    <!-- ── Passkey management ─────────────────────────────────────── -->
+    <div id="passkeys-section">
+      <div class="section-title">
+        <i class="bi bi-key-fill" style="color:var(--accent)"></i>
+        Passkeys
+      </div>
+      <ul class="passkey-list" id="passkey-list">
+        <li class="metric-card" style="padding:14px 16px;">
+          <div class="skel" style="height:16px;width:60%;"></div>
+        </li>
+      </ul>
+      <div style="margin-top:12px;">
+        <a href="/business" style="font-size:13px;font-weight:600;">
+          <i class="bi bi-plus-circle"></i> Register another passkey
+        </a>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // ── Session ─────────────────────────────────────────────────────────────
+    const token  = sessionStorage.getItem('ss_biz_token');
+    const userId = sessionStorage.getItem('ss_biz_user');
+
+    if (!token) {
+      document.getElementById('auth-gate').style.display = 'flex';
+      // Hide content sections
+      ['metrics-section','workspace-section','passkeys-section'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+      });
+    } else {
+      init();
+    }
+
+    document.getElementById('signout-btn').addEventListener('click', () => {
+      sessionStorage.removeItem('ss_biz_token');
+      sessionStorage.removeItem('ss_biz_user');
+      window.location.href = '/business';
+    });
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+    function authHeaders() {
+      return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+    }
+
+    function fmt(n) {
+      if (n == null) return '—';
+      if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+      return String(n);
+    }
+    function fmtMs(ms) {
+      if (ms == null) return '—';
+      if (ms < 1000) return ms + ' ms';
+      return (ms / 1000).toFixed(1) + 's';
+    }
+    function fmtDate(iso) {
+      if (!iso) return '';
+      return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    // ── Bootstrap ───────────────────────────────────────────────────────────
+    async function init() {
+      // Refresh token silently
+      try {
+        const refresh = await fetch('/api/business/passkeys/refresh', {
+          method: 'POST',
+          headers: authHeaders(),
+        }).then(r => r.json());
+        if (refresh.token) {
+          sessionStorage.setItem('ss_biz_token', refresh.token);
+        }
+      } catch { /* non-fatal */ }
+
+      // Load phone from userId (business phone stored in session claims)
+      // Display userId prefix in nav
+      if (userId) {
+        document.getElementById('nav-phone').textContent = userId.slice(0, 8) + '…';
+      }
+
+      await Promise.all([
+        loadMetrics(),
+        loadWorkspaceSettings(),
+        loadPasskeys(),
+      ]);
+    }
+
+    // ── Metrics ─────────────────────────────────────────────────────────────
+    async function loadMetrics() {
+      // We need the business phone — derive from workspace settings first or
+      // use the userId as a proxy for the metrics request.
+      // The dashboard API accepts a ?phone= param verified against the session.
+      // Fetch workspace settings first to get the phone.
+      let phone;
+      try {
+        const ws = await fetch(`/api/workspace-settings`, {
+          headers: authHeaders(),
+        }).then(r => r.json());
+        phone = ws.business_phone;
+        if (!phone) throw new Error('no phone');
+      } catch {
+        renderMetricsError();
+        return;
+      }
+
+      document.getElementById('nav-phone').textContent = phone;
+
+      try {
+        const data = await fetch(`/api/dashboard?phone=${encodeURIComponent(phone)}`, {
+          headers: authHeaders(),
+        }).then(r => r.json());
+
+        if (data.error) throw new Error(data.error);
+        renderMetrics(data);
+      } catch {
+        renderMetricsError();
+      }
+    }
+
+    function renderMetrics(d) {
+      const grid = document.getElementById('metrics-grid');
+      grid.innerHTML = `
+        <div class="metric-card metric-card--accent">
+          <div class="metric-card__label">Leads</div>
+          <div class="metric-card__value">${fmt(d.leads_30d)}</div>
+          <div class="metric-card__sub">dispatched</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-card__label">Calls</div>
+          <div class="metric-card__value">${fmt(d.calls_30d)}</div>
+          <div class="metric-card__sub">initiated</div>
+        </div>
+        <div class="metric-card metric-card--green">
+          <div class="metric-card__label">Accepted</div>
+          <div class="metric-card__value">${fmt(d.accepted_30d)}</div>
+          <div class="metric-card__sub">leads</div>
+        </div>
+        <div class="metric-card metric-card--red">
+          <div class="metric-card__label">Declined</div>
+          <div class="metric-card__value">${fmt(d.declined_30d)}</div>
+          <div class="metric-card__sub">leads</div>
+        </div>
+        <div class="metric-card metric-card--amber">
+          <div class="metric-card__label">Timeout</div>
+          <div class="metric-card__value">${fmt(d.timeout_30d)}</div>
+          <div class="metric-card__sub">no response</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-card__label">Avg response</div>
+          <div class="metric-card__value" style="font-size:22px;">${fmtMs(d.avg_response_ms)}</div>
+          <div class="metric-card__sub">to YES reply</div>
+        </div>
+      `;
+
+      // Acceptance rate bar
+      if (d.acceptance_rate != null) {
+        const rate = d.acceptance_rate;
+        const color = rate >= 70 ? 'var(--green)' : rate >= 40 ? 'var(--amber)' : 'var(--red)';
+        document.getElementById('rate-fill').style.width = rate + '%';
+        document.getElementById('rate-fill').style.background = color;
+        document.getElementById('rate-label').textContent = `${rate}% acceptance rate`;
+        document.getElementById('rate-section').style.display = 'block';
+      }
+
+      // Top service labels
+      if (d.top_service_labels?.length) {
+        const pills = document.getElementById('top-services-pills');
+        pills.innerHTML = d.top_service_labels.map(l => `<span class="pill">${esc(l)}</span>`).join('');
+        document.getElementById('top-services-section').style.display = 'block';
+      }
+
+      // Cached badge
+      if (d.cached) {
+        document.getElementById('metrics-cached-badge').textContent = '(cached)';
+      }
+    }
+
+    function renderMetricsError() {
+      document.getElementById('metrics-grid').innerHTML =
+        `<div style="grid-column:1/-1;font-size:14px;color:var(--text3);padding:16px 0;">
+           Unable to load metrics. Make sure your Supabase connection is configured.
+         </div>`;
+    }
+
+    // ── Workspace settings ──────────────────────────────────────────────────
+    async function loadWorkspaceSettings() {
+      try {
+        const data = await fetch('/api/workspace-settings', {
+          headers: authHeaders(),
+        }).then(r => r.json());
+
+        if (data.error) throw new Error(data.error);
+        populateWorkspaceForm(data);
+      } catch {
+        document.getElementById('save-status').textContent = 'Could not load settings.';
+        document.getElementById('save-status').className = 'save-status show save-status--error';
+      }
+    }
+
+    function populateWorkspaceForm(d) {
+      document.getElementById('ws-tone').value          = d.tone ?? 'friendly';
+      document.getElementById('ws-length').value        = d.answer_length ?? 'balanced';
+      document.getElementById('ws-banned').value        = (d.banned_claims   ?? []).join('\n');
+      document.getElementById('ws-required').value      = (d.required_phrases ?? []).join('\n');
+      document.getElementById('ws-knowledge').value     = (d.knowledge_urls   ?? []).join('\n');
+      document.getElementById('ws-starters').value      = (d.starter_questions ?? []).join('\n');
+      document.getElementById('ws-collect-lead').checked    = !!d.collect_lead_details;
+      document.getElementById('ws-escalate-call').checked   = d.escalate_to_call !== false;
+      document.getElementById('ws-escalate-video').checked  = !!d.escalate_to_video;
+    }
+
+    function splitLines(str) {
+      return str.split('\n').map(s => s.trim()).filter(Boolean);
+    }
+
+    document.getElementById('workspace-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const btn = document.getElementById('save-btn');
+      const status = document.getElementById('save-status');
+      btn.disabled = true;
+      status.className = 'save-status';
+
+      const payload = {
+        tone:                 document.getElementById('ws-tone').value,
+        answer_length:        document.getElementById('ws-length').value,
+        banned_claims:        splitLines(document.getElementById('ws-banned').value),
+        required_phrases:     splitLines(document.getElementById('ws-required').value),
+        knowledge_urls:       splitLines(document.getElementById('ws-knowledge').value),
+        starter_questions:    splitLines(document.getElementById('ws-starters').value),
+        collect_lead_details: document.getElementById('ws-collect-lead').checked,
+        escalate_to_call:     document.getElementById('ws-escalate-call').checked,
+        escalate_to_video:    document.getElementById('ws-escalate-video').checked,
+      };
+
+      try {
+        const res = await fetch('/api/workspace-settings', {
+          method: 'PUT',
+          headers: authHeaders(),
+          body: JSON.stringify(payload),
+        }).then(r => r.json());
+
+        if (res.error) throw new Error(res.error);
+        status.textContent = 'Settings saved!';
+        status.className = 'save-status show save-status--success';
+      } catch (err) {
+        status.textContent = err.message ?? 'Failed to save.';
+        status.className = 'save-status show save-status--error';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // ── Passkeys ─────────────────────────────────────────────────────────────
+    async function loadPasskeys() {
+      const list = document.getElementById('passkey-list');
+      try {
+        const data = await fetch('/api/business/passkeys/list', {
+          headers: authHeaders(),
+        }).then(r => r.json());
+
+        if (data.error || !Array.isArray(data)) throw new Error(data.error ?? 'unexpected response');
+        if (data.length === 0) {
+          list.innerHTML = `<li style="font-size:14px;color:var(--text3);padding:8px 0;">No passkeys registered.</li>`;
+          return;
+        }
+        list.innerHTML = data.map(pk => `
+          <li class="passkey-item" data-cred-id="${esc(pk.credential_id)}">
+            <div class="passkey-item__icon">🔑</div>
+            <div>
+              <div class="passkey-item__name">${esc(pk.friendly_name || 'Passkey')}</div>
+              <div class="passkey-item__meta">
+                Added ${fmtDate(pk.created_at)}
+                ${pk.last_used_at ? ` · Last used ${fmtDate(pk.last_used_at)}` : ''}
+                ${pk.device_type ? ` · ${esc(pk.device_type)}` : ''}
+              </div>
+            </div>
+            <div class="passkey-item__spacer"></div>
+            <button class="revoke-btn" type="button" onclick="revokePasskey('${esc(pk.credential_id)}', this)">
+              Revoke
+            </button>
+          </li>
+        `).join('');
+      } catch {
+        list.innerHTML = `<li style="font-size:14px;color:var(--text3);padding:8px 0;">Could not load passkeys.</li>`;
+      }
+    }
+
+    async function revokePasskey(credentialId, btn) {
+      if (!confirm('Revoke this passkey? You cannot undo this.')) return;
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/business/passkeys/revoke', {
+          method: 'DELETE',
+          headers: authHeaders(),
+          body: JSON.stringify({ credentialId }),
+        }).then(r => r.json());
+
+        if (res.error) throw new Error(res.error);
+        // Remove the list item
+        btn.closest('li').remove();
+      } catch (err) {
+        alert(err.message ?? 'Failed to revoke passkey.');
+        btn.disabled = false;
+      }
+    }
+    // expose for inline onclick
+    window.revokePasskey = revokePasskey;
+
+    // ── Escape helper ────────────────────────────────────────────────────────
+    function esc(str) {
+      return String(str ?? '')
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+    }
+  </script>
+</body>
+</html>

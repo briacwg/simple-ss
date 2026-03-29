@@ -1,0 +1,389 @@
+---
+export const prerender = false;
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>ServiceSurfer — Business Portal</title>
+  <meta name="description" content="Sign in to your ServiceSurfer business dashboard with a passkey." />
+  <style>
+    :root {
+      --bg: #ffffff; --bg2: #f9fafb; --text: #111827; --text2: #6b7280;
+      --border: #e5e7eb; --accent: #0096FF; --accent-dark: #0077cc;
+      --radius: 12px; --shadow: rgba(0,0,0,.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111827; --bg2: #1f2937; --text: #f9fafb; --text2: #9ca3af;
+        --border: #374151; --shadow: rgba(0,0,0,.4);
+      }
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      min-height: 100svh;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background: var(--bg); color: var(--text); display: flex; flex-direction: column;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── Layout ── */
+    .portal-wrap {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      padding: 32px 16px;
+    }
+    .portal-card {
+      width: 100%; max-width: 400px;
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 36px 32px;
+      box-shadow: 0 4px 24px var(--shadow);
+    }
+    .portal-logo {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 28px;
+    }
+    .portal-logo-icon {
+      width: 40px; height: 40px; border-radius: 10px;
+      background: var(--accent); display: flex; align-items: center;
+      justify-content: center; font-size: 20px; flex-shrink: 0;
+    }
+    .portal-logo-text { font-size: 18px; font-weight: 700; letter-spacing: -.3px; }
+    .portal-logo-sub  { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; }
+
+    h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+    .portal-sub { font-size: 14px; color: var(--text2); margin-bottom: 28px; line-height: 1.5; }
+
+    /* ── Passkey button ── */
+    .passkey-btn {
+      width: 100%; padding: 14px 20px;
+      background: var(--accent); color: #fff;
+      border: none; border-radius: 10px;
+      font-size: 16px; font-weight: 600; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      transition: background .15s, opacity .15s;
+    }
+    .passkey-btn:hover  { background: var(--accent-dark); }
+    .passkey-btn:active { opacity: .85; }
+    .passkey-btn[disabled] { opacity: .5; cursor: not-allowed; }
+    .passkey-btn svg { flex-shrink: 0; }
+
+    /* ── Register toggle ── */
+    .register-toggle {
+      margin-top: 20px; text-align: center;
+      font-size: 13px; color: var(--text2);
+    }
+    .register-toggle button {
+      background: none; border: none; color: var(--accent);
+      font-size: 13px; cursor: pointer; font-weight: 600; padding: 0;
+    }
+    .register-toggle button:hover { text-decoration: underline; }
+
+    /* ── User ID input (for register flow) ── */
+    .field { margin-top: 16px; }
+    .field label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+    .field input {
+      width: 100%; padding: 11px 14px;
+      border: 1px solid var(--border); border-radius: 8px;
+      background: var(--bg); color: var(--text);
+      font-size: 14px; outline: none;
+    }
+    .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,150,255,.15); }
+
+    /* ── Status messages ── */
+    .status-msg {
+      margin-top: 14px; padding: 10px 14px; border-radius: 8px;
+      font-size: 13px; line-height: 1.5; display: none;
+    }
+    .status-msg.show { display: block; }
+    .status-msg--info    { background: rgba(0,150,255,.1); color: #0056b3; border: 1px solid rgba(0,150,255,.2); }
+    .status-msg--success { background: rgba(22,163,74,.1);  color: #15803d;  border: 1px solid rgba(22,163,74,.2); }
+    .status-msg--error   { background: rgba(220,38,38,.08); color: #b91c1c;  border: 1px solid rgba(220,38,38,.2); }
+    @media (prefers-color-scheme: dark) {
+      .status-msg--info    { color: #7dd3fc; border-color: rgba(0,150,255,.3); }
+      .status-msg--success { color: #86efac; border-color: rgba(22,163,74,.3); }
+      .status-msg--error   { color: #fca5a5; border-color: rgba(220,38,38,.3); }
+    }
+
+    /* ── Security note ── */
+    .security-note {
+      margin-top: 24px; padding-top: 20px;
+      border-top: 1px solid var(--border);
+      font-size: 12px; color: var(--text2);
+      display: flex; align-items: flex-start; gap: 8px; line-height: 1.5;
+    }
+    .security-note svg { flex-shrink: 0; margin-top: 1px; }
+
+    /* ── Footer ── */
+    footer {
+      text-align: center; padding: 20px;
+      font-size: 12px; color: var(--text2);
+    }
+  </style>
+</head>
+<body>
+  <div class="portal-wrap">
+    <div class="portal-card">
+      <div class="portal-logo">
+        <div class="portal-logo-icon">🌊</div>
+        <div>
+          <div class="portal-logo-text">ServiceSurfer</div>
+          <div class="portal-logo-sub">Business Portal</div>
+        </div>
+      </div>
+
+      <h1 id="page-title">Welcome back</h1>
+      <p class="portal-sub" id="page-sub">
+        Use your passkey to sign in instantly — no password required.
+      </p>
+
+      <!-- Register-only field: device-friendly name -->
+      <div class="field" id="name-field" style="display:none;">
+        <label for="device-name">Device name (optional)</label>
+        <input type="text" id="device-name" placeholder="e.g. iPhone 15, MacBook Pro" autocomplete="off" />
+      </div>
+
+      <button class="passkey-btn" id="auth-btn" type="button">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 2C8.134 2 5 5.134 5 9c0 2.33 1.006 4.42 2.6 5.864L2 20.586 3.414 22l.293-.293L5 23.414 6.414 22 5 20.586l1.456-1.457A7.955 7.955 0 0012 21c4.418 0 8-3.134 8-7V9c0-3.866-3.134-7-8-7z"/>
+          <circle cx="12" cy="9" r="2"/>
+        </svg>
+        <span id="auth-btn-label">Sign in with passkey</span>
+      </button>
+
+      <div id="status" class="status-msg" role="status" aria-live="polite"></div>
+
+      <div class="register-toggle">
+        <span id="toggle-hint">New to ServiceSurfer?</span>
+        <button type="button" id="toggle-btn">Register a passkey</button>
+      </div>
+
+      <div class="security-note" aria-label="Security information">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+        Passkeys use your device's biometrics or PIN — your credentials never leave your device.
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    &copy; 2026 ServiceSurfer &mdash;
+    <a href="/">Consumer search</a>
+  </footer>
+
+  <script>
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function b64url(buf) {
+      return btoa(String.fromCharCode(...new Uint8Array(buf)))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+    function fromB64url(str) {
+      const pad = str.length % 4 ? str + '='.repeat(4 - str.length % 4) : str;
+      const bin = atob(pad.replace(/-/g, '+').replace(/_/g, '/'));
+      return Uint8Array.from(bin, c => c.charCodeAt(0));
+    }
+
+    function setStatus(msg, type = 'info') {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.className = `status-msg show status-msg--${type}`;
+    }
+    function clearStatus() {
+      const el = document.getElementById('status');
+      el.className = 'status-msg';
+    }
+    function setLoading(loading) {
+      const btn = document.getElementById('auth-btn');
+      btn.disabled = loading;
+    }
+
+    // ── Mode toggle ──────────────────────────────────────────────────────────
+    let mode = 'authenticate'; // 'authenticate' | 'register'
+
+    document.getElementById('toggle-btn').addEventListener('click', () => {
+      mode = mode === 'authenticate' ? 'register' : 'authenticate';
+      clearStatus();
+      const isReg = mode === 'register';
+      document.getElementById('page-title').textContent  = isReg ? 'Register a passkey' : 'Welcome back';
+      document.getElementById('page-sub').textContent    = isReg
+        ? 'Create a passkey on this device to access your business dashboard.'
+        : 'Use your passkey to sign in instantly — no password required.';
+      document.getElementById('auth-btn-label').textContent = isReg ? 'Register passkey' : 'Sign in with passkey';
+      document.getElementById('name-field').style.display   = isReg ? '' : 'none';
+      document.getElementById('toggle-hint').textContent    = isReg ? 'Already have a passkey?' : 'New to ServiceSurfer?';
+      document.getElementById('toggle-btn').textContent     = isReg ? 'Sign in instead' : 'Register a passkey';
+    });
+
+    // ── Authenticate flow ────────────────────────────────────────────────────
+    async function doAuthenticate() {
+      setLoading(true);
+      setStatus('Preparing challenge…');
+      try {
+        // 1. Get challenge (discoverable — no userId needed)
+        const startRes = await fetch('/api/business/passkeys/authenticate/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        }).then(r => r.json());
+
+        if (startRes.error) throw new Error(startRes.error);
+
+        setStatus('Waiting for biometric confirmation…');
+
+        // 2. WebAuthn assertion
+        const assertion = await navigator.credentials.get({
+          publicKey: {
+            challenge: fromB64url(startRes.challenge),
+            timeout: startRes.timeout ?? 60000,
+            rpId: startRes.rpId,
+            allowCredentials: (startRes.allowCredentials ?? []).map(c => ({
+              id: fromB64url(c.id), type: c.type,
+            })),
+            userVerification: startRes.userVerification ?? 'preferred',
+          },
+        });
+
+        setStatus('Verifying…');
+
+        // 3. Finish
+        const finishRes = await fetch('/api/business/passkeys/authenticate/finish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            challengeId: startRes.challengeId,
+            response: {
+              id: assertion.id,
+              rawId: b64url(assertion.rawId),
+              type: assertion.type,
+              response: {
+                clientDataJSON:    b64url(assertion.response.clientDataJSON),
+                authenticatorData: b64url(assertion.response.authenticatorData),
+                signature:         b64url(assertion.response.signature),
+                userHandle:        assertion.response.userHandle ? b64url(assertion.response.userHandle) : null,
+              },
+            },
+          }),
+        }).then(r => r.json());
+
+        if (!finishRes.verified) throw new Error('Verification failed — try again.');
+
+        // Persist session token
+        sessionStorage.setItem('ss_biz_token', finishRes.token);
+        sessionStorage.setItem('ss_biz_user',  finishRes.userId);
+
+        setStatus('Signed in! Redirecting…', 'success');
+        setTimeout(() => { window.location.href = '/business/dashboard'; }, 600);
+
+      } catch (err) {
+        const msg = err?.name === 'NotAllowedError'
+          ? 'Passkey prompt was cancelled or timed out.'
+          : err?.message ?? 'Authentication failed.';
+        setStatus(msg, 'error');
+        setLoading(false);
+      }
+    }
+
+    // ── Register flow ────────────────────────────────────────────────────────
+    async function doRegister() {
+      const token = sessionStorage.getItem('ss_biz_token');
+      if (!token) {
+        setStatus('You must be signed in to register a new passkey. Please sign in first.', 'error');
+        return;
+      }
+      setLoading(true);
+      setStatus('Preparing registration…');
+      try {
+        const friendlyName = document.getElementById('device-name').value.trim() || undefined;
+
+        // 1. Get registration options
+        const startRes = await fetch('/api/business/passkeys/register/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ friendlyName }),
+        }).then(r => r.json());
+
+        if (startRes.error) throw new Error(startRes.error);
+
+        setStatus('Waiting for biometric confirmation…');
+
+        // 2. WebAuthn credential creation
+        const credential = await navigator.credentials.create({
+          publicKey: {
+            challenge:  fromB64url(startRes.challenge),
+            rp:         startRes.rp,
+            user: {
+              id:          fromB64url(startRes.user.id),
+              name:        startRes.user.name,
+              displayName: startRes.user.displayName,
+            },
+            pubKeyCredParams:        startRes.pubKeyCredParams,
+            timeout:                 startRes.timeout ?? 60000,
+            excludeCredentials:      (startRes.excludeCredentials ?? []).map(c => ({
+              id: fromB64url(c.id), type: c.type,
+            })),
+            authenticatorSelection:  startRes.authenticatorSelection,
+            attestation:             startRes.attestation ?? 'none',
+          },
+        });
+
+        setStatus('Saving credential…');
+
+        // 3. Finish registration
+        const finishRes = await fetch('/api/business/passkeys/register/finish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({
+            challengeId: startRes.challengeId,
+            friendlyName,
+            response: {
+              id:   credential.id,
+              rawId: b64url(credential.rawId),
+              type: credential.type,
+              response: {
+                clientDataJSON:    b64url(credential.response.clientDataJSON),
+                attestationObject: b64url(credential.response.attestationObject),
+                transports:        credential.response.getTransports?.() ?? [],
+              },
+            },
+          }),
+        }).then(r => r.json());
+
+        if (finishRes.error) throw new Error(finishRes.error);
+
+        setStatus('Passkey registered successfully!', 'success');
+        setLoading(false);
+
+      } catch (err) {
+        const msg = err?.name === 'NotAllowedError'
+          ? 'Passkey prompt was cancelled.'
+          : err?.message ?? 'Registration failed.';
+        setStatus(msg, 'error');
+        setLoading(false);
+      }
+    }
+
+    // ── Main button ──────────────────────────────────────────────────────────
+    document.getElementById('auth-btn').addEventListener('click', () => {
+      if (mode === 'authenticate') doAuthenticate();
+      else doRegister();
+    });
+
+    // ── Check passkeys support ───────────────────────────────────────────────
+    if (!window.PublicKeyCredential) {
+      document.getElementById('auth-btn').disabled = true;
+      setStatus('Passkeys are not supported in this browser. Please use a modern browser.', 'error');
+    }
+
+    // ── Auto-sign-in if token still valid ────────────────────────────────────
+    const existingToken = sessionStorage.getItem('ss_biz_token');
+    if (existingToken) {
+      // Optimistically redirect; dashboard will call /api/business/passkeys/refresh to verify
+      window.location.href = '/business/dashboard';
+    }
+  </script>
+</body>
+</html>
