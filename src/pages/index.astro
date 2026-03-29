@@ -124,28 +124,25 @@ export const prerender = false;
     }
     .qi-bar b { color:var(--accent-blue); font-weight:700; }
 
-    /* Diagnosis hint callout */
+    /* Diagnosis hint — slim inline pill */
     .diagnosis-callout {
-      display: flex; align-items: flex-start; gap: .6rem;
-      padding: .8rem 1rem; border-radius: 1rem; margin-bottom: 1rem;
-      font-size: .88rem; line-height: 1.5;
-      border: 1px solid; animation: fadeIn .3s ease;
+      display: inline-flex; align-items: center; gap: .4rem;
+      padding: .3rem .75rem; border-radius: 999px; margin-bottom: .75rem;
+      font-size: .8rem; font-weight: 600; border: 1px solid;
+      animation: fadeIn .3s ease; max-width: 100%;
     }
-    .diagnosis-callout--critical {
-      background: rgba(220,38,38,.06); border-color: rgba(220,38,38,.25); color: #b91c1c;
-    }
-    .diagnosis-callout--high {
-      background: rgba(245,158,11,.06); border-color: rgba(245,158,11,.28); color: #92400e;
-    }
-    .diagnosis-callout--medium {
+    .diagnosis-callout--critical { background: rgba(220,38,38,.06); border-color: rgba(220,38,38,.25); color: #b91c1c; }
+    .diagnosis-callout--high     { background: rgba(245,158,11,.06); border-color: rgba(245,158,11,.28); color: #92400e; }
+    .diagnosis-callout--medium   {
       background: color-mix(in oklab,var(--accent-blue) 5%,var(--bg-primary));
       border-color: color-mix(in oklab,var(--accent-blue) 22%,var(--border-color));
       color: var(--text-secondary);
     }
     .diagnosis-callout--low { display: none; }
-    .diagnosis-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: .05rem; }
+    .diagnosis-icon { font-size: .85rem; flex-shrink: 0; }
     .diagnosis-label { font-weight: 700; }
-    .diagnosis-cause { color: var(--text-tertiary); font-size: .82rem; }
+    .diagnosis-cause { opacity: .75; }
+    .diagnosis-sep { opacity: .4; }
     @media (prefers-color-scheme: dark) {
       .diagnosis-callout--critical { background: rgba(220,38,38,.12); color: #fca5a5; }
       .diagnosis-callout--high { background: rgba(245,158,11,.10); color: #fcd34d; }
@@ -191,8 +188,25 @@ export const prerender = false;
     .scard--urgent { border-color: color-mix(in oklab,#f59e0b 55%,var(--border-color)); }
     .scard--critical { border-color: color-mix(in oklab,#dc2626 45%,var(--border-color)); }
 
-    .scard-inner { display:flex; flex-direction:column; gap:.8rem; flex:1; position:relative; z-index:1; }
-    .scard-top { display:flex; flex-wrap:wrap; align-items:center; gap:.45rem; }
+    /* Card grid: badges → two-column body → actions */
+    .scard-inner {
+      display: grid;
+      grid-template-areas: "top top" "left right" "actions actions";
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto 1fr auto;
+      gap: .55rem .85rem;
+      flex: 1; position: relative; z-index: 1;
+    }
+    @media (max-width: 500px) {
+      .scard-inner {
+        grid-template-areas: "top" "left" "right" "actions";
+        grid-template-columns: 1fr;
+      }
+    }
+    .scard-top     { grid-area: top; display:flex; flex-wrap:wrap; align-items:center; gap:.45rem; }
+    .scard-left    { grid-area: left; display:flex; flex-direction:column; gap:.28rem; }
+    .scard-right   { grid-area: right; }
+    .scard-actions { grid-area: actions; }
 
     .rank-chip {
       display:inline-flex; align-items:center; justify-content:center;
@@ -224,46 +238,47 @@ export const prerender = false;
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     @keyframes shimmer { 0%,100%{opacity:.45} 50%{opacity:.9} }
 
-    /* "Why this business" AI summary block */
+    /* "Why this business" — right column AI reasons */
     .scard-why {
-      border-top: 1px solid color-mix(in oklab, var(--border-color) 65%, transparent);
-      padding-top: .75rem; animation: fadeIn .4s ease;
+      padding: .55rem .65rem;
+      background: color-mix(in oklab, var(--accent-blue) 4%, var(--bg-secondary));
+      border: 1px solid color-mix(in oklab, var(--accent-blue) 14%, var(--border-color));
+      border-radius: 12px; animation: fadeIn .4s ease;
     }
     .scard-why-head {
-      display: flex; align-items: center; gap: .35rem;
-      margin-bottom: .45rem;
+      display: flex; align-items: center; gap: .3rem; margin-bottom: .38rem;
     }
     .scard-why-label {
-      font-size: .72rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
-      color: color-mix(in oklab, var(--accent-blue) 70%, var(--text-secondary));
+      font-size: .68rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+      color: color-mix(in oklab, var(--accent-blue) 75%, var(--text-secondary));
     }
-    .scard-why-icon { color: color-mix(in oklab, var(--accent-blue) 70%, var(--text-secondary)); flex-shrink: 0; }
+    .scard-why-icon { color: color-mix(in oklab, var(--accent-blue) 75%, var(--text-secondary)); flex-shrink: 0; }
     .scard-why-list {
-      list-style: none; display: flex; flex-direction: column; gap: .3rem;
+      list-style: none; display: flex; flex-direction: column; gap: .32rem;
       padding: 0; margin: 0;
     }
     .scard-why-list li {
-      font-size: .84rem; color: var(--text-secondary); line-height: 1.5;
-      display: flex; align-items: flex-start; gap: .4rem;
+      font-size: .81rem; color: var(--text-secondary); line-height: 1.45;
+      display: flex; align-items: flex-start; gap: .38rem;
     }
     .scard-why-list li::before {
-      content: '→'; color: var(--accent-blue); font-size: .78rem;
-      flex-shrink: 0; margin-top: .12rem; font-weight: 700;
+      content: '→'; color: var(--accent-blue); font-size: .75rem;
+      flex-shrink: 0; margin-top: .1rem; font-weight: 700;
     }
     /* Skeleton shimmer while loading */
     .scard-why--loading .scard-why-list li {
-      height: .85rem; border-radius: 4px;
+      height: .78rem; border-radius: 4px;
       background: color-mix(in oklab, var(--border-color) 70%, var(--bg-secondary));
       animation: shimmer 1.4s ease-in-out infinite;
       color: transparent;
     }
     .scard-why--loading .scard-why-list li::before { display: none; }
-    .scard-why--loading .scard-why-list li:nth-child(2) { width: 78%; animation-delay: .2s; }
-    .scard-why--loading .scard-why-list li:nth-child(3) { width: 62%; animation-delay: .4s; }
+    .scard-why--loading .scard-why-list li:nth-child(2) { width: 82%; animation-delay: .2s; }
+    .scard-why--loading .scard-why-list li:nth-child(3) { width: 65%; animation-delay: .4s; }
 
     .scard-actions {
-      display:flex; flex-direction:column; gap:.6rem; margin-top:auto;
-      padding-top:.9rem; border-top:1px solid color-mix(in oklab,var(--border-color) 82%,var(--accent-blue) 18%);
+      display:flex; flex-direction:column; gap:.6rem;
+      padding-top:.7rem; border-top:1px solid color-mix(in oklab,var(--border-color) 82%,var(--accent-blue) 18%);
     }
     .scard-actions-row { display:flex; flex-wrap:wrap; gap:.55rem; }
     .scard-actions-row .action-btn { flex:1 1 0; }
@@ -446,16 +461,15 @@ export const prerender = false;
         const lbl = label ? label.charAt(0).toUpperCase() + label.slice(1) : '';
         const locText = locLabel?.textContent && locLabel.textContent !== 'your area' ? ` near ${locLabel.textContent}` : ' nearby';
 
-        // ── Diagnosis callout (Layer 1 inferDiagnosisHint) ──────────────────
+        // ── Diagnosis callout — slim inline pill ────────────────────────────
         const urgencyClass = urgencyTier === 'critical' ? 'critical' : urgencyTier === 'high' ? 'high' : 'medium';
         const urgencyIcon  = urgencyTier === 'critical' ? '🚨' : urgencyTier === 'high' ? '⚡' : 'ℹ️';
         const diagnosisHtml = diagnosisHint
           ? `<div class="diagnosis-callout diagnosis-callout--${urgencyClass}">
                <span class="diagnosis-icon">${urgencyIcon}</span>
-               <div>
-                 <div class="diagnosis-label">${esc(diagnosisHint.diagnosisLabel)}</div>
-                 <div class="diagnosis-cause">${esc(diagnosisHint.likelyCauses)}</div>
-               </div>
+               <span class="diagnosis-label">${esc(diagnosisHint.diagnosisLabel)}</span>
+               <span class="diagnosis-sep">·</span>
+               <span class="diagnosis-cause">${esc(diagnosisHint.likelyCauses)}</span>
              </div>`
           : '';
 
@@ -525,23 +539,44 @@ export const prerender = false;
         });
 
         function splitIntoBullets(summary, b) {
-          // If the summary has sentence boundaries, split into ≤3 bullet points
-          const sentences = summary.replace(/\.([A-Z])/g, '. $1').split(/\.\s+/).filter(s => s.trim().length > 8);
-          if (sentences.length >= 2) return sentences.slice(0, 3).map(s => s.replace(/\.?\s*$/, ''));
-          // Otherwise use as single bullet + add context from structured data
-          const bullets = [summary.trim().replace(/\.$/, '')];
-          if (b.rating && b.reviewCount) bullets.push(`Rated ${b.rating.toFixed(1)} ★ across ${b.reviewCount} reviews`);
-          if (b.openNow === true) bullets.push('Currently open for service');
+          // Split on sentence boundaries — keep ≤3 short, useful sentences
+          const cleaned = summary.trim().replace(/\.$/, '');
+          const sentences = cleaned
+            .replace(/([.!?])\s+([A-Z])/g, '$1\n$2')
+            .split('\n')
+            .map(s => s.trim().replace(/[.!?]$/, ''))
+            .filter(s => s.length > 10 && s.length < 120);
+          if (sentences.length >= 2) return sentences.slice(0, 3);
+          // Single-sentence summary — keep as first bullet, pad with decision signals
+          const bullets = [cleaned];
+          if (b.rating >= 4.5 && b.reviewCount >= 20)
+            bullets.push(`Highly rated by ${b.reviewCount} verified customers`);
+          else if (b.rating >= 4.0 && b.reviewCount > 0)
+            bullets.push(`${b.rating.toFixed(1)} ★ rating across ${b.reviewCount} reviews`);
+          if (b.openNow === true) bullets.push('Available now — can respond immediately');
+          else if (b.distance) bullets.push(`${b.distance} from your location`);
           return bullets.slice(0, 3);
         }
 
         function buildWhyFallback(b) {
+          // Construct decision-helpful sentences from structured data
           const bullets = [];
-          if (b.rating && b.reviewCount > 0) bullets.push(`Rated ${b.rating.toFixed(1)} ★ across ${b.reviewCount} customer reviews`);
-          if (b.distance) bullets.push(`Located ${b.distance} from your area`);
-          if (b.openNow === true) bullets.push('Currently open — available now');
-          else if (b.openNow === false) bullets.push('Currently closed — check hours before calling');
-          if (!bullets.length) bullets.push('Top-ranked match for your service request');
+          if (b.rating >= 4.7 && b.reviewCount >= 50)
+            bullets.push(`One of the highest-rated options with ${b.reviewCount} reviews`);
+          else if (b.rating >= 4.0 && b.reviewCount >= 10)
+            bullets.push(`${b.rating.toFixed(1)} ★ average across ${b.reviewCount} customer reviews`);
+          else if (b.rating > 0)
+            bullets.push(`${b.rating.toFixed(1)} ★ customer rating`);
+
+          if (b.openNow === true && b.distance)
+            bullets.push(`Open now · ${b.distance} from you — fast response likely`);
+          else if (b.openNow === true)
+            bullets.push('Currently open and ready to take your call');
+          else if (b.distance)
+            bullets.push(`${b.distance} from your location`);
+
+          if (bullets.length < 2)
+            bullets.push('Matched based on your service request and location');
           return bullets.slice(0, 3);
         }
       })
@@ -585,25 +620,24 @@ export const prerender = false;
         <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
         <span>Send request</span>
       </button>` : '';
-    // "Why this business" block — shown for all cards, async-filled from /api/summarize
-    const whyHtml = `
-      <div class="scard-why scard-why--loading" id="why-${rank}">
-        <div class="scard-why-head">
-          <svg class="scard-why-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-          <span class="scard-why-label">Why this business</span>
-        </div>
-        <ul class="scard-why-list" id="why-list-${rank}">
-          <li>&nbsp;</li><li>&nbsp;</li><li>&nbsp;</li>
-        </ul>
-      </div>`;
     return `
       <article class="scard${isBest ? ' scard--spotlight' : ''}">
         <div class="scard-inner">
           <div class="scard-top">${rankHtml}${openHtml}</div>
-          <h3 class="scard-name">${esc(b.name)}</h3>
-          ${proof}
-          ${b.address ? `<p class="scard-addr">${esc(b.address)}</p>` : ''}
-          ${whyHtml}
+          <div class="scard-left">
+            <h3 class="scard-name">${esc(b.name)}</h3>
+            ${proof}
+            ${b.address ? `<p class="scard-addr">${esc(b.address)}</p>` : ''}
+          </div>
+          <div class="scard-right scard-why scard-why--loading" id="why-${rank}">
+            <div class="scard-why-head">
+              <svg class="scard-why-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+              <span class="scard-why-label">Why this business</span>
+            </div>
+            <ul class="scard-why-list" id="why-list-${rank}">
+              <li>&nbsp;</li><li>&nbsp;</li><li>&nbsp;</li>
+            </ul>
+          </div>
           <div class="scard-actions">
             ${callHtml}
             <div class="scard-actions-row">${videoHtml}${webHtml}${dispatchHtml}</div>
