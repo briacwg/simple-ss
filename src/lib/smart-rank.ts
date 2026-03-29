@@ -1,43 +1,47 @@
 /**
  * Training-data-driven business ranking.
  *
- * Closes the AI feedback loop: every dispatch outcome (accepted / declined /
- * timeout) written to `dispatch_training_events` is fed back here to improve
- * the queue ordering for future similar leads.
+ * Closes the full AI feedback loop: every dispatch outcome AND every consumer
+ * review is fed back here to improve the queue ordering for future similar leads.
  *
  * Ranking algorithm
  * ─────────────────
- * Each candidate business starts with a base score of 1.0.  Two acceptance-rate
- * signals are combined — one specific (same service + location) and one general
- * (any lead for this business) — and blended with a precision-weighted mix:
+ * Three signals are blended for each candidate:
  *
- *   specificRate  = accepted / total  for this phone + service_label + location_cell
- *   generalRate   = accepted / total  for this phone (all labels / locations)
- *   blendedRate   = (specificRate * specificWeight + generalRate * generalWeight)
- *                    / (specificWeight + generalWeight)
+ * 1. Acceptance-rate multiplier  [0.6 → 1.4]
+ *    Two acceptance-rate signals — one specific (same service + location cell) and
+ *    one general (any lead for this business) — are precision-weighted:
  *
- * specificWeight = min(specificTotal, 20)   — up to 20x weight for local signal
- * generalWeight  = min(generalTotal, 10)    — capped at 10x to avoid over-fitting
+ *      specificRate  = accepted / total  for phone + service_label + location_cell
+ *      generalRate   = accepted / total  for phone (all labels / locations)
+ *      blendedRate   = (specificRate × specificWeight + generalRate × generalWeight)
+ *                       / (specificWeight + generalWeight)
  *
- * scoreMultiplier = 0.6 + blendedRate * 0.8   (range 0.6 → 1.4)
+ *      specificWeight = min(specificTotal, 20)   — up to 20× for local signal
+ *      generalWeight  = min(generalTotal,  10)   — capped to avoid over-fitting
  *
- * A business with no historical data keeps a neutral multiplier of 1.0 so that
- * new businesses aren't penalised.  A business with a 75% acceptance rate for
- * the same service in the same cell gets ~1.2× boost; one with 20% gets ~0.76×.
+ *      acceptMultiplier = 0.6 + blendedRate × 0.8   (neutral at 0.5 rate → 1.0)
  *
- * Businesses are sorted by (scoreMultiplier × 1 / (googleRank + 1)) descending,
- * so the Google Places ranking is used as a tie-breaker and initial signal.
+ * 2. Consumer review quality multiplier  [0.85 → 1.15]
+ *    Average star rating from `lead_events` (event_type = 'review_received').
+ *    Only applied when the business has ≥ 3 reviews; neutral (1.0) otherwise.
+ *
+ *      reviewNorm       = (avgRating − 1) / 4     (0.0 for 1★, 1.0 for 5★)
+ *      reviewMultiplier = 0.85 + reviewNorm × 0.30
+ *
+ * 3. Google Places rank signal  [0.0 → 0.3 contribution]
+ *    Preserves the Places ranking as a tie-breaker when training data is sparse.
+ *
+ *      final = acceptMultiplier × reviewMultiplier × (0.7 + 0.3 / (googleRank + 1))
  *
  * Performance
  * ───────────
- * A single Supabase query with an IN filter fetches all relevant training rows
- * for the candidate set.  Results are cached in Redis for 10 minutes per
- * (service_label, location_cell) pair to avoid repeated DB hits on high-traffic
- * search queries.
+ * Training and review queries are issued in parallel (Promise.all); the combined
+ * result is cached in Redis for 10 minutes per (service_label, location_cell) pair.
  *
  * Fallback
  * ────────
- * If Supabase is unavailable or the query times out, the original Google Places
+ * If Supabase is unavailable or either query times out, the original Google Places
  * order is returned unchanged so dispatch is never blocked.
  */
 
@@ -56,11 +60,17 @@ interface AcceptanceStats {
   accepted: number;
 }
 
+interface ReviewStats {
+  total:     number;
+  ratingSum: number;
+}
+
 // ── Cache ─────────────────────────────────────────────────────────────────────
 
 const CACHE_TTL = 60 * 10; // 10 minutes
+// v2: cache key bumped when review-score signal was added to the ranking formula
 const cacheKey = (phones: string[], label: string | null, cell: string | null) =>
-  `ss:smart-rank:v1:${label ?? '_'}:${cell ?? '_'}:${phones.slice().sort().join(',')}`;
+  `ss:smart-rank:v2:${label ?? '_'}:${cell ?? '_'}:${phones.slice().sort().join(',')}`;
 
 // ── Core ranking ──────────────────────────────────────────────────────────────
 
@@ -104,19 +114,33 @@ export async function reRankByAcceptance(
   const sb = getSupabase();
   if (!sb) return candidates;
 
-  // Fetch training data for all candidate phones in a single query
-  const { data, error } = await Promise.race([
-    sb
-      .from('dispatch_training_events')
-      .select('business_phone, outcome, service_label, location_cell')
-      .in('business_phone', phones)
-      .limit(500),
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500)),
-  ]).catch(() => ({ data: null, error: new Error('timeout') }));
+  // Fetch training events and review scores in parallel — both use the same
+  // candidate phone set; a shared 1.5 s deadline prevents dispatch from stalling.
+  const deadline = <T>(p: Promise<T>) =>
+    Promise.race([p, new Promise<never>((_, r) => setTimeout(() => r(new Error('timeout')), 1500))]);
 
-  if (error || !data) return candidates;
+  const [trainingResult, reviewResult] = await Promise.all([
+    deadline(
+      sb
+        .from('dispatch_training_events')
+        .select('business_phone, outcome, service_label, location_cell')
+        .in('business_phone', phones)
+        .limit(500),
+    ).catch(() => ({ data: null, error: new Error('timeout') as Error })),
+    deadline(
+      sb
+        .from('lead_events')
+        .select('business_phone, meta')
+        .in('business_phone', phones)
+        .eq('event_type', 'review_received')
+        .limit(200),
+    ).catch(() => ({ data: null, error: null })),
+  ]);
 
-  // Aggregate specific (label+cell) and general stats per phone
+  if (trainingResult.error || !trainingResult.data) return candidates;
+  const data = trainingResult.data;
+
+  // Aggregate specific (label+cell) and general acceptance stats per phone
   const specificStats = new Map<string, AcceptanceStats>();
   const generalStats  = new Map<string, AcceptanceStats>();
 
@@ -136,7 +160,20 @@ export async function reRankByAcceptance(
     }
   }
 
-  // Compute score multiplier for each candidate
+  // Aggregate consumer review scores per phone (from lead_events review_received events)
+  const reviewStats = new Map<string, ReviewStats>();
+  for (const row of reviewResult.data ?? []) {
+    const rating = (row.meta as { rating?: number } | null)?.rating;
+    if (typeof rating === 'number' && rating >= 1 && rating <= 5) {
+      const prev = reviewStats.get(row.business_phone) ?? { total: 0, ratingSum: 0 };
+      reviewStats.set(row.business_phone, {
+        total:     prev.total + 1,
+        ratingSum: prev.ratingSum + rating,
+      });
+    }
+  }
+
+  // Compute composite score for each candidate
   const scored = candidates.map((b, googleRank) => {
     const specific = specificStats.get(b.phone);
     const general  = generalStats.get(b.phone);
@@ -158,13 +195,21 @@ export async function reRankByAcceptance(
         : 0.5;
     }
 
-    // multiplier ∈ [0.6, 1.4]; neutral (0.5 rate) → 1.0
-    const multiplier = 0.6 + blendedRate * 0.8;
+    // Acceptance multiplier ∈ [0.6, 1.4]; neutral at blendedRate = 0.5 → 1.0
+    const acceptMultiplier = 0.6 + blendedRate * 0.8;
 
-    // Combine with inverse Google rank so high-rated Places businesses retain
+    // Review quality multiplier ∈ [0.85, 1.15].
+    // Requires ≥ 3 reviews before applying non-neutral weight so that a single
+    // outlier review cannot dominate the ranking.
+    const reviews = reviewStats.get(b.phone);
+    const reviewMultiplier = reviews && reviews.total >= 3
+      ? 0.85 + ((reviews.ratingSum / reviews.total - 1) / 4) * 0.30
+      : 1.0;
+
+    // Google Places rank contributes 30% so high-rated Places businesses retain
     // an advantage when training data is sparse.
     const placesSignal = 1 / (googleRank + 1);
-    const score        = multiplier * (0.7 + 0.3 * placesSignal); // 70% acceptance, 30% Places
+    const score        = acceptMultiplier * reviewMultiplier * (0.7 + 0.3 * placesSignal);
 
     return { business: b, score };
   });
