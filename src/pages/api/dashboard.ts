@@ -25,6 +25,7 @@ import { normalizePhone } from '../../lib';
 import { getSupabase, type BusinessDashboardMetrics } from '../../lib/supabase';
 import { getBusinessSession } from '../../lib/session';
 import { json, err } from '../../lib/api-helpers';
+import { upsertBusinessProfile } from '../../lib/vector';
 
 export const prerender = false;
 
@@ -60,7 +61,8 @@ export const GET: APIRoute = async ({ url, request }) => {
   if (cached) {
     const age = Date.now() - new Date(cached.updated_at).getTime();
     if (age < CACHE_STALE_MS) {
-      return json({ ...cached, acceptance_rate: computeRate(cached), cached: true });
+      const rate = computeRate(cached);
+      return json({ ...cached, acceptance_rate: rate, performance_score: computeScore(cached, rate), cached: true });
     }
   }
 
@@ -81,7 +83,10 @@ export const GET: APIRoute = async ({ url, request }) => {
       .then(r => r, () => ({ data: null, error: null }));
     const fresh = (freshResult.data ?? null) as BusinessDashboardMetrics | null;
     if (fresh) {
-      return json({ ...fresh, acceptance_rate: computeRate(fresh), cached: false });
+      const rate  = computeRate(fresh);
+      const score = computeScore(fresh, rate);
+      pushBusinessProfile(phone, fresh, rate, score);
+      return json({ ...fresh, acceptance_rate: rate, performance_score: score, cached: false });
     }
   }
 
@@ -153,12 +158,57 @@ export const GET: APIRoute = async ({ url, request }) => {
     .upsert(metrics as never, { onConflict: 'business_phone' })
     .then(() => null, () => null);
 
-  return json({ ...metrics, acceptance_rate: computeRate(metrics), cached: false });
+  const rate  = computeRate(metrics);
+  const score = computeScore(metrics, rate);
+
+  // Keep business vector profile in sync (non-blocking)
+  pushBusinessProfile(phone, metrics, rate, score);
+
+  return json({ ...metrics, acceptance_rate: rate, performance_score: score, cached: false });
 };
 
 function computeRate(m: { accepted_30d: number; declined_30d: number; timeout_30d: number }): number | null {
   const total = m.accepted_30d + m.declined_30d + m.timeout_30d;
   if (total === 0) return null;
   return Math.round((m.accepted_30d / total) * 1000) / 10; // percentage, 1 decimal place
+}
+
+/** Pushes a business performance profile to Upstash Vector (non-blocking). */
+function pushBusinessProfile(
+  phone: string,
+  m: BusinessDashboardMetrics,
+  acceptanceRate: number | null,
+  performanceScore: number | null,
+): void {
+  upsertBusinessProfile({
+    phone,
+    name:             phone, // name not available here — will be enriched if profile already exists
+    acceptanceRate:   acceptanceRate != null ? acceptanceRate / 100 : 0,
+    avgResponseMs:    m.avg_response_ms,
+    topServices:      m.top_service_labels ?? [],
+    performanceScore: performanceScore,
+    updatedAt:        new Date().toISOString(),
+  });
+}
+
+/**
+ * Composite 0–100 performance score.
+ *   85% weighted from acceptance rate
+ *   15% speed bonus: <30s → 15pts, <60s → 10pts, <2min → 5pts
+ * Returns null when fewer than 3 data points exist.
+ */
+function computeScore(
+  m: { accepted_30d: number; declined_30d: number; timeout_30d: number; avg_response_ms: number | null },
+  acceptanceRate: number | null,
+): number | null {
+  const total = m.accepted_30d + m.declined_30d + m.timeout_30d;
+  if (total < 3 || acceptanceRate == null) return null;
+  let speedBonus = 0;
+  if (m.avg_response_ms != null) {
+    if (m.avg_response_ms < 30_000)  speedBonus = 15;
+    else if (m.avg_response_ms < 60_000)  speedBonus = 10;
+    else if (m.avg_response_ms < 120_000) speedBonus = 5;
+  }
+  return Math.min(100, Math.round(acceptanceRate * 0.85 + speedBonus));
 }
 

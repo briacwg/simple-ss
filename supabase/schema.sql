@@ -38,12 +38,17 @@ create table if not exists public.dispatch_training_events (
   response_ms      integer,
   -- 0-indexed position in the dispatch queue
   queue_position   integer     not null default 0,
-  -- Hour of day (0-23) for time-of-day analysis
-  hour_of_day      smallint    generated always as (extract(hour from created_at)::smallint) stored,
-  -- Day of week (0=Sun … 6=Sat)
-  day_of_week      smallint    generated always as (extract(dow from created_at)::smallint) stored,
+  -- Hour of day (0-23) and day of week (0=Sun) — set by application on insert for time analysis
+  hour_of_day      smallint,
+  day_of_week      smallint,
   created_at       timestamptz not null default now()
 );
+
+-- Ensure columns exist when re-applying to a database created from an older schema.
+alter table if exists public.dispatch_training_events
+  add column if not exists business_phone   text,
+  add column if not exists hour_of_day      smallint,
+  add column if not exists day_of_week      smallint;
 
 create index if not exists idx_dte_dispatch_id   on public.dispatch_training_events(dispatch_id);
 create index if not exists idx_dte_business       on public.dispatch_training_events(business_phone, created_at desc);
@@ -53,7 +58,8 @@ create index if not exists idx_dte_outcome        on public.dispatch_training_ev
 -- RLS: service-role writes; business owners read their own rows via JWT claim.
 -- No anonymous access — training data is internal.
 alter table public.dispatch_training_events enable row level security;
-create policy if not exists dte_select_own
+drop policy if exists dte_select_own on public.dispatch_training_events;
+create policy dte_select_own
   on public.dispatch_training_events for select
   using (business_phone = (current_setting('request.jwt.claims', true)::jsonb ->> 'business_phone'));
 
@@ -79,13 +85,22 @@ create table if not exists public.lead_events (
   created_at     timestamptz not null default now()
 );
 
+alter table if exists public.lead_events
+  add column if not exists business_phone text,
+  add column if not exists dispatch_id    text,
+  add column if not exists service_label  text,
+  add column if not exists location_cell  text,
+  add column if not exists consumer_phone text,
+  add column if not exists meta           jsonb;
+
 create index if not exists idx_le_business_type  on public.lead_events(business_phone, event_type, created_at desc);
 create index if not exists idx_le_dispatch        on public.lead_events(dispatch_id);
 create index if not exists idx_le_created         on public.lead_events(created_at desc);
 
 -- RLS: service-role writes; businesses read their own events.
 alter table public.lead_events enable row level security;
-create policy if not exists le_select_own
+drop policy if exists le_select_own on public.lead_events;
+create policy le_select_own
   on public.lead_events for select
   using (business_phone = (current_setting('request.jwt.claims', true)::jsonb ->> 'business_phone'));
 
@@ -144,17 +159,26 @@ alter table public.passkey_challenges   enable row level security;
 alter table public.passkey_auth_events  enable row level security;
 
 -- Users manage their own passkeys
-create policy if not exists user_passkeys_select_own on public.user_passkeys for select using (auth.uid() = user_id);
-create policy if not exists user_passkeys_insert_own on public.user_passkeys for insert with check (auth.uid() = user_id);
-create policy if not exists user_passkeys_update_own on public.user_passkeys for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy if not exists user_passkeys_delete_own on public.user_passkeys for delete using (auth.uid() = user_id);
+drop policy if exists user_passkeys_select_own on public.user_passkeys;
+create policy user_passkeys_select_own on public.user_passkeys for select using (auth.uid() = user_id);
+drop policy if exists user_passkeys_insert_own on public.user_passkeys;
+create policy user_passkeys_insert_own on public.user_passkeys for insert with check (auth.uid() = user_id);
+drop policy if exists user_passkeys_update_own on public.user_passkeys;
+create policy user_passkeys_update_own on public.user_passkeys for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists user_passkeys_delete_own on public.user_passkeys;
+create policy user_passkeys_delete_own on public.user_passkeys for delete using (auth.uid() = user_id);
 
-create policy if not exists passkey_challenges_select_own on public.passkey_challenges for select using (auth.uid() = user_id);
-create policy if not exists passkey_challenges_insert_own on public.passkey_challenges for insert with check (auth.uid() = user_id);
-create policy if not exists passkey_challenges_delete_own on public.passkey_challenges for delete using (auth.uid() = user_id);
+drop policy if exists passkey_challenges_select_own on public.passkey_challenges;
+create policy passkey_challenges_select_own on public.passkey_challenges for select using (auth.uid() = user_id);
+drop policy if exists passkey_challenges_insert_own on public.passkey_challenges;
+create policy passkey_challenges_insert_own on public.passkey_challenges for insert with check (auth.uid() = user_id);
+drop policy if exists passkey_challenges_delete_own on public.passkey_challenges;
+create policy passkey_challenges_delete_own on public.passkey_challenges for delete using (auth.uid() = user_id);
 
-create policy if not exists passkey_auth_events_select_own on public.passkey_auth_events for select using (auth.uid() = user_id);
-create policy if not exists passkey_auth_events_insert_own on public.passkey_auth_events for insert with check (auth.uid() = user_id);
+drop policy if exists passkey_auth_events_select_own on public.passkey_auth_events;
+create policy passkey_auth_events_select_own on public.passkey_auth_events for select using (auth.uid() = user_id);
+drop policy if exists passkey_auth_events_insert_own on public.passkey_auth_events;
+create policy passkey_auth_events_insert_own on public.passkey_auth_events for insert with check (auth.uid() = user_id);
 
 -- ── Business Workspace Settings ───────────────────────────────────────────────
 --
@@ -175,9 +199,27 @@ create table if not exists public.business_workspace_settings (
   knowledge_urls      text[]      not null default '{}'::text[],
   starter_questions   text[]      not null default '{}'::text[],
   notes               text,
+  available           boolean     not null default true,
+  avg_job_value       integer     not null default 0,
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now()
 );
+
+alter table if exists public.business_workspace_settings
+  add column if not exists business_phone      text,
+  add column if not exists plan_slug           text        not null default 'free',
+  add column if not exists tone                text        not null default 'friendly',
+  add column if not exists answer_length       text        not null default 'balanced',
+  add column if not exists banned_claims       text[]      not null default '{}'::text[],
+  add column if not exists required_phrases    text[]      not null default '{}'::text[],
+  add column if not exists collect_lead_details boolean    not null default false,
+  add column if not exists escalate_to_call    boolean     not null default true,
+  add column if not exists escalate_to_video   boolean     not null default false,
+  add column if not exists knowledge_urls      text[]      not null default '{}'::text[],
+  add column if not exists starter_questions   text[]      not null default '{}'::text[],
+  add column if not exists notes               text,
+  add column if not exists available           boolean     not null default true,
+  add column if not exists avg_job_value       integer     not null default 0;
 
 create index if not exists idx_bws_phone on public.business_workspace_settings(business_phone);
 
@@ -205,9 +247,21 @@ create table if not exists public.business_dashboard_metrics (
   updated_at          timestamptz not null default now()
 );
 
+alter table if exists public.business_dashboard_metrics
+  add column if not exists leads_30d          integer not null default 0,
+  add column if not exists calls_30d          integer not null default 0,
+  add column if not exists dispatches_30d     integer not null default 0,
+  add column if not exists accepted_30d       integer not null default 0,
+  add column if not exists declined_30d       integer not null default 0,
+  add column if not exists timeout_30d        integer not null default 0,
+  add column if not exists avg_response_ms    integer,
+  add column if not exists top_service_labels text[]  not null default '{}'::text[],
+  add column if not exists updated_at         timestamptz not null default now();
+
 -- RLS: businesses read only their own metrics row; service-role upserts freely.
 alter table public.business_dashboard_metrics enable row level security;
-create policy if not exists bdm_select_own
+drop policy if exists bdm_select_own on public.business_dashboard_metrics;
+create policy bdm_select_own
   on public.business_dashboard_metrics for select
   using (business_phone = (current_setting('request.jwt.claims', true)::jsonb ->> 'business_phone'));
 
@@ -275,3 +329,51 @@ begin
     updated_at         = now();
 end;
 $$;
+
+
+-- ── Search Result Cache ───────────────────────────────────────────────────────
+--
+-- L2 cache for Google Places + Cerebras search results.
+-- Reduces Places API calls by serving cached results for up to 30 days.
+-- Entries are refreshed transparently via stale-while-revalidate (7-day threshold).
+
+create table if not exists public.search_result_cache (
+  cache_key     text        primary key,
+  query         text        not null,
+  location_cell text        not null,
+  lat           float8      not null,
+  lng           float8      not null,
+  result        jsonb       not null,
+  hit_count     integer     not null default 1,
+  last_hit_at   timestamptz not null default now(),
+  refresh_after timestamptz not null,
+  expires_at    timestamptz not null,
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists idx_src_expires      on public.search_result_cache(expires_at);
+create index if not exists idx_src_location     on public.search_result_cache(location_cell);
+create index if not exists idx_src_refresh      on public.search_result_cache(refresh_after) where refresh_after < now();
+create index if not exists idx_src_hot_stale    on public.search_result_cache(hit_count desc) where refresh_after < now() and expires_at > now();
+
+-- Increment hit count atomically (used by search-cache.ts on every cache hit)
+create or replace function public.increment_search_cache_hits(p_key text)
+returns void language sql as $$
+  update public.search_result_cache
+  set hit_count   = hit_count + 1,
+      last_hit_at = now()
+  where cache_key = p_key;
+$$;
+
+-- RLS: this table is internal-only — no public access
+alter table public.search_result_cache enable row level security;
+
+drop policy if exists "service_role_only" on public.search_result_cache;
+create policy "service_role_only" on public.search_result_cache
+  using (auth.role() = 'service_role');
+
+-- ── Migration: add available + avg_job_value to business_workspace_settings ───
+-- (Run this if the columns don't exist yet — safe to run multiple times)
+alter table public.business_workspace_settings
+  add column if not exists available      boolean not null default true,
+  add column if not exists avg_job_value  integer not null default 0;

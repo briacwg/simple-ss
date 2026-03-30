@@ -13,8 +13,10 @@
  */
 
 import type { APIRoute } from 'astro';
-import { resolveCallRef, createCallSession, bridgeNumber } from '../../lib';
+import { resolveCallRef, createCallSession, bridgeNumber, redis } from '../../lib';
 import { json, err } from '../../lib/api-helpers';
+import { logLeadEvent } from '../../lib/supabase';
+import { getVectorIndex } from '../../lib/vector';
 
 export const prerender = false;
 
@@ -29,6 +31,44 @@ export const POST: APIRoute = async ({ request }) => {
   // Allocate a PIN + session token — stored in Redis with a 15-min TTL
   const session = await createCallSession(phone, businessName || 'Business');
   if (!session) return json({ error: 'call unavailable — check Redis config' }, 503);
+
+  // Log call_initiated lead event + vector outcome (non-blocking, best-effort)
+  const r = redis();
+  if (r) {
+    r.get<string>(`ss:dispatch:by-phone:${phone}`).then(async dispatchId => {
+      const callTs = new Date().toISOString();
+
+      // Supabase lead event — feeds dashboard analytics
+      logLeadEvent({
+        dispatch_id:    dispatchId ?? null,
+        business_phone: phone,
+        event_type:     'call_initiated',
+        service_label:  null,
+        location_cell:  null,
+        consumer_phone: null,
+        meta:           { businessName: businessName || null },
+      }).catch(() => null);
+
+      // Vector outcome — links call to dispatch intent
+      const idx = getVectorIndex();
+      if (idx && dispatchId) {
+        idx.upsert(
+          {
+            id:   `call:${dispatchId}`,
+            data: `call initiated to ${phone}`,
+            metadata: {
+              dispatchId,
+              businessPhone: phone,
+              businessName:  String(businessName || ''),
+              event:         'call_initiated',
+              createdAt:     callTs,
+            },
+          },
+          { namespace: 'outcomes' },
+        ).catch(() => null);
+      }
+    }).catch(() => null);
+  }
 
   // Strip non-dialable characters from the bridge number
   const dial = bridgeNumber().replace(/[^\d+]/g, '');

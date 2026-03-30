@@ -66,6 +66,44 @@ export const prerender = false;
     }
     .section-divider { margin: 36px 0 28px; border: none; border-top: 1px solid var(--border); }
 
+    /* ── Availability toggle card ── */
+    .avail-card {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 16px; padding: 20px 24px;
+      background: var(--bg2); border: 2px solid var(--border);
+      border-radius: var(--radius); margin-bottom: 28px;
+      transition: border-color .2s;
+    }
+    .avail-card--on  { border-color: var(--green); }
+    .avail-card--off { border-color: var(--red); }
+    .avail-title { font-size: 16px; font-weight: 700; }
+    .avail-sub   { font-size: 13px; color: var(--text3); margin-top: 2px; }
+    .avail-status {
+      font-size: 12px; font-weight: 700; letter-spacing: .5px;
+      text-transform: uppercase; margin-top: 4px;
+    }
+    .avail-status--on  { color: var(--green); }
+    .avail-status--off { color: var(--red); }
+
+    /* Toggle switch */
+    .toggle-wrap { position: relative; flex-shrink: 0; }
+    .toggle-input {
+      position: absolute; opacity: 0; width: 0; height: 0;
+    }
+    .toggle-label {
+      display: block; width: 56px; height: 30px; border-radius: 15px;
+      background: var(--bg3); cursor: pointer; transition: background .2s;
+      position: relative;
+    }
+    .toggle-label::after {
+      content: ''; position: absolute; top: 3px; left: 3px;
+      width: 24px; height: 24px; border-radius: 50%;
+      background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.25);
+      transition: transform .2s;
+    }
+    .toggle-input:checked + .toggle-label { background: var(--green); }
+    .toggle-input:checked + .toggle-label::after { transform: translateX(26px); }
+
     /* ── Metrics grid ── */
     .metrics-grid {
       display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px;
@@ -82,6 +120,17 @@ export const prerender = false;
     .metric-card--green  .metric-card__value { color: var(--green); }
     .metric-card--red    .metric-card__value { color: var(--red); }
     .metric-card--amber  .metric-card__value { color: var(--amber); }
+
+    /* Score ring */
+    .score-ring {
+      width: 48px; height: 48px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; font-weight: 800; margin-top: 6px;
+      border: 3px solid var(--border);
+    }
+    .score-ring--great  { border-color: var(--green);  color: var(--green); }
+    .score-ring--ok     { border-color: var(--amber);  color: var(--amber); }
+    .score-ring--low    { border-color: var(--red);    color: var(--red); }
 
     /* ── Top services pills ── */
     .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
@@ -108,6 +157,50 @@ export const prerender = false;
       animation: skel-shimmer 1.4s infinite;
     }
     @keyframes skel-shimmer { to { background-position: -200% 0; } }
+
+    /* ── Leads list ── */
+    .leads-list { display: grid; gap: 8px; }
+    .lead-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 16px; border: 1px solid var(--border);
+      border-radius: 10px; background: var(--bg2);
+    }
+    .lead-item__icon { font-size: 18px; flex-shrink: 0; width: 28px; text-align: center; }
+    .lead-item__label { font-size: 14px; font-weight: 600; }
+    .lead-item__meta  { font-size: 12px; color: var(--text3); margin-top: 1px; }
+    .lead-item__spacer { flex: 1; }
+    .lead-item__badge {
+      font-size: 11px; font-weight: 700; letter-spacing: .4px;
+      padding: 3px 8px; border-radius: 99px; text-transform: uppercase;
+    }
+    .badge--accepted { background: rgba(22,163,74,.12);  color: var(--green); }
+    .badge--declined { background: rgba(220,38,38,.08);  color: var(--red); }
+    .badge--timeout  { background: rgba(217,119,6,.1);   color: var(--amber); }
+    .badge--sent     { background: rgba(0,150,255,.1);   color: var(--accent); }
+    .badge--other    { background: var(--bg3); color: var(--text3); }
+
+    /* Missed call recovery */
+    .recover-btn {
+      font-size: 12px; padding: 5px 10px;
+      border: 1px solid var(--accent); border-radius: 6px;
+      background: none; color: var(--accent); cursor: pointer; font-weight: 600;
+    }
+    .recover-btn:hover { background: rgba(0,150,255,.08); }
+
+    /* ── Avg job value field ── */
+    .job-value-row {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    .job-value-prefix {
+      font-size: 18px; font-weight: 700; color: var(--text3);
+    }
+    .job-value-input {
+      width: 120px; padding: 10px 14px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 16px; font-weight: 600;
+      outline: none; font-family: inherit;
+    }
+    .job-value-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,150,255,.12); }
 
     /* ── Workspace settings form ── */
     .settings-grid { display: grid; gap: 18px; }
@@ -180,6 +273,7 @@ export const prerender = false;
       .topnav { padding: 12px 16px; }
       .page { padding: 20px 14px 48px; }
       .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+      .avail-card { padding: 16px 18px; }
     }
   </style>
 </head>
@@ -200,6 +294,19 @@ export const prerender = false;
     <div id="auth-gate" class="auth-banner" style="display:none;">
       <i class="bi bi-exclamation-triangle-fill"></i>
       <span>Session expired. <a href="/business">Sign in again</a></span>
+    </div>
+
+    <!-- ── Availability toggle ──────────────────────────────────────── -->
+    <div id="avail-card" class="avail-card avail-card--on">
+      <div>
+        <div class="avail-title">Lead availability</div>
+        <div class="avail-sub">Turn off to pause new leads while you're busy or away</div>
+        <div class="avail-status avail-status--on" id="avail-status-text">Available — accepting new leads</div>
+      </div>
+      <div class="toggle-wrap">
+        <input type="checkbox" id="avail-toggle" class="toggle-input" checked />
+        <label for="avail-toggle" class="toggle-label" aria-label="Toggle availability"></label>
+      </div>
     </div>
 
     <!-- ── 30-day metrics ──────────────────────────────────────────── -->
@@ -232,6 +339,37 @@ export const prerender = false;
 
     <hr class="section-divider" />
 
+    <!-- ── Recent leads & missed call recovery ────────────────────── -->
+    <div id="leads-section">
+      <div class="section-title">
+        <i class="bi bi-list-ul" style="color:var(--accent)"></i>
+        Recent Leads
+      </div>
+      <div class="leads-list" id="leads-list">
+        <!-- Skeleton -->
+        <div class="lead-item"><div class="skel" style="height:14px;width:40%;"></div><div style="flex:1"></div><div class="skel" style="height:20px;width:70px;border-radius:99px;"></div></div>
+        <div class="lead-item"><div class="skel" style="height:14px;width:50%;"></div><div style="flex:1"></div><div class="skel" style="height:20px;width:70px;border-radius:99px;"></div></div>
+        <div class="lead-item"><div class="skel" style="height:14px;width:35%;"></div><div style="flex:1"></div><div class="skel" style="height:20px;width:70px;border-radius:99px;"></div></div>
+      </div>
+    </div>
+
+    <hr class="section-divider" />
+
+    <!-- ── Twilio Call Logs ───────────────────────────────────────── -->
+    <div id="call-logs-section">
+      <div class="section-title">
+        <i class="bi bi-telephone-fill" style="color:var(--accent)"></i>
+        Call Logs
+        <span id="call-logs-cached-badge" style="font-size:11px;font-weight:400;color:var(--text3);margin-left:8px;"></span>
+      </div>
+      <div class="leads-list" id="call-logs-list">
+        <div class="lead-item"><div class="skel" style="height:14px;width:45%;"></div><div style="flex:1"></div><div class="skel" style="height:20px;width:80px;border-radius:99px;"></div></div>
+        <div class="lead-item"><div class="skel" style="height:14px;width:55%;"></div><div style="flex:1"></div><div class="skel" style="height:20px;width:80px;border-radius:99px;"></div></div>
+      </div>
+    </div>
+
+    <hr class="section-divider" />
+
     <!-- ── AI Workspace settings ──────────────────────────────────── -->
     <div id="workspace-section">
       <div class="section-title">
@@ -239,6 +377,17 @@ export const prerender = false;
         AI Workspace Settings
       </div>
       <form class="settings-grid" id="workspace-form" autocomplete="off">
+
+        <!-- Average job value -->
+        <div class="field">
+          <label>Average job value</label>
+          <div class="job-value-row">
+            <span class="job-value-prefix">$</span>
+            <input type="number" id="ws-avg-job-value" class="job-value-input" min="0" max="99999" step="1" placeholder="0" />
+          </div>
+          <div class="field-hint">Used to estimate monthly earnings from accepted leads.</div>
+        </div>
+
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
           <div class="field">
             <label for="ws-tone">Response tone</label>
@@ -341,8 +490,7 @@ export const prerender = false;
 
     if (!token) {
       document.getElementById('auth-gate').style.display = 'flex';
-      // Hide content sections
-      ['metrics-section','workspace-section','passkeys-section'].forEach(id => {
+      ['avail-card','metrics-section','leads-section','call-logs-section','workspace-section','passkeys-section'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
       });
@@ -366,6 +514,12 @@ export const prerender = false;
       if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
       return String(n);
     }
+    function fmtUsd(n) {
+      if (!n || n === 0) return null;
+      if (n >= 1000000) return '$' + (n / 1000000).toFixed(1) + 'M';
+      if (n >= 1000)    return '$' + (n / 1000).toFixed(1) + 'k';
+      return '$' + Math.round(n);
+    }
     function fmtMs(ms) {
       if (ms == null) return '—';
       if (ms < 1000) return ms + ' ms';
@@ -375,58 +529,115 @@ export const prerender = false;
       if (!iso) return '';
       return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
     }
+    function fmtRelative(iso) {
+      if (!iso) return '';
+      const diff = Date.now() - new Date(iso).getTime();
+      const mins = Math.floor(diff / 60000);
+      if (mins < 1)   return 'just now';
+      if (mins < 60)  return `${mins}m ago`;
+      const hrs = Math.floor(mins / 60);
+      if (hrs < 24)   return `${hrs}h ago`;
+      const days = Math.floor(hrs / 24);
+      return `${days}d ago`;
+    }
 
     // ── Bootstrap ───────────────────────────────────────────────────────────
+    let _phone = null;
+    let _avgJobValue = 0;
+
     async function init() {
-      // Refresh token silently
       try {
         const refresh = await fetch('/api/business/passkeys/refresh', {
           method: 'POST',
           headers: authHeaders(),
         }).then(r => r.json());
-        if (refresh.token) {
-          sessionStorage.setItem('ss_biz_token', refresh.token);
-        }
+        if (refresh.token) sessionStorage.setItem('ss_biz_token', refresh.token);
       } catch { /* non-fatal */ }
 
-      // Load phone from userId (business phone stored in session claims)
-      // Display userId prefix in nav
-      if (userId) {
-        document.getElementById('nav-phone').textContent = userId.slice(0, 8) + '…';
-      }
+      if (userId) document.getElementById('nav-phone').textContent = userId.slice(0, 8) + '…';
 
       await Promise.all([
-        loadMetrics(),
         loadWorkspaceSettings(),
         loadPasskeys(),
       ]);
     }
 
+    // ── Workspace settings (loads first — needed for phone + avgJobValue) ────
+    async function loadWorkspaceSettings() {
+      try {
+        const data = await fetch('/api/workspace-settings', {
+          headers: authHeaders(),
+        }).then(r => r.json());
+        if (data.error) throw new Error(data.error);
+
+        _phone = data.business_phone;
+        _avgJobValue = Number(data.avg_job_value ?? 0);
+
+        document.getElementById('nav-phone').textContent = _phone || '';
+        populateWorkspaceForm(data);
+
+        // Now load metrics, leads, and call logs (need phone)
+        await Promise.all([loadMetrics(), loadLeads(), loadCallLogs()]);
+      } catch {
+        document.getElementById('save-status').textContent = 'Could not load settings.';
+        document.getElementById('save-status').className = 'save-status show save-status--error';
+      }
+    }
+
+    function populateWorkspaceForm(d) {
+      document.getElementById('ws-tone').value          = d.tone ?? 'friendly';
+      document.getElementById('ws-length').value        = d.answer_length ?? 'balanced';
+      document.getElementById('ws-banned').value        = (d.banned_claims   ?? []).join('\n');
+      document.getElementById('ws-required').value      = (d.required_phrases ?? []).join('\n');
+      document.getElementById('ws-knowledge').value     = (d.knowledge_urls   ?? []).join('\n');
+      document.getElementById('ws-starters').value      = (d.starter_questions ?? []).join('\n');
+      document.getElementById('ws-collect-lead').checked    = !!d.collect_lead_details;
+      document.getElementById('ws-escalate-call').checked   = d.escalate_to_call !== false;
+      document.getElementById('ws-escalate-video').checked  = !!d.escalate_to_video;
+      document.getElementById('ws-avg-job-value').value     = d.avg_job_value ?? 0;
+
+      // Availability toggle
+      const available = d.available !== false;
+      const toggleEl  = document.getElementById('avail-toggle');
+      toggleEl.checked = available;
+      updateAvailUI(available);
+    }
+
+    // ── Availability toggle ─────────────────────────────────────────────────
+    function updateAvailUI(available) {
+      const card   = document.getElementById('avail-card');
+      const status = document.getElementById('avail-status-text');
+      if (available) {
+        card.className   = 'avail-card avail-card--on';
+        status.className = 'avail-status avail-status--on';
+        status.textContent = 'Available — accepting new leads';
+      } else {
+        card.className   = 'avail-card avail-card--off';
+        status.className = 'avail-status avail-status--off';
+        status.textContent = 'Paused — not receiving new leads';
+      }
+    }
+
+    document.getElementById('avail-toggle').addEventListener('change', async function() {
+      const available = this.checked;
+      updateAvailUI(available);
+      if (!_phone) return;
+      try {
+        await fetch('/api/workspace-settings', {
+          method: 'PUT',
+          headers: authHeaders(),
+          body: JSON.stringify({ businessPhone: _phone, available }),
+        });
+      } catch { /* non-fatal — toggle already updated locally */ }
+    });
+
     // ── Metrics ─────────────────────────────────────────────────────────────
     async function loadMetrics() {
-      // We need the business phone — derive from workspace settings first or
-      // use the userId as a proxy for the metrics request.
-      // The dashboard API accepts a ?phone= param verified against the session.
-      // Fetch workspace settings first to get the phone.
-      let phone;
+      if (!_phone) { renderMetricsError(); return; }
       try {
-        const ws = await fetch(`/api/workspace-settings`, {
+        const data = await fetch(`/api/dashboard?phone=${encodeURIComponent(_phone)}`, {
           headers: authHeaders(),
         }).then(r => r.json());
-        phone = ws.business_phone;
-        if (!phone) throw new Error('no phone');
-      } catch {
-        renderMetricsError();
-        return;
-      }
-
-      document.getElementById('nav-phone').textContent = phone;
-
-      try {
-        const data = await fetch(`/api/dashboard?phone=${encodeURIComponent(phone)}`, {
-          headers: authHeaders(),
-        }).then(r => r.json());
-
         if (data.error) throw new Error(data.error);
         renderMetrics(data);
       } catch {
@@ -435,8 +646,31 @@ export const prerender = false;
     }
 
     function renderMetrics(d) {
-      const grid = document.getElementById('metrics-grid');
-      grid.innerHTML = `
+      const estEarnings = _avgJobValue > 0
+        ? fmtUsd((d.accepted_30d ?? 0) * _avgJobValue)
+        : null;
+
+      const scoreHtml = d.performance_score != null
+        ? (() => {
+            const s = d.performance_score;
+            const cls = s >= 75 ? 'great' : s >= 50 ? 'ok' : 'low';
+            return `<div class="metric-card">
+              <div class="metric-card__label">Score</div>
+              <div class="score-ring score-ring--${cls}">${s}</div>
+              <div class="metric-card__sub">performance</div>
+            </div>`;
+          })()
+        : '';
+
+      const earningsHtml = estEarnings
+        ? `<div class="metric-card metric-card--green">
+             <div class="metric-card__label">Est. earnings</div>
+             <div class="metric-card__value">${esc(estEarnings)}</div>
+             <div class="metric-card__sub">30-day estimate</div>
+           </div>`
+        : '';
+
+      document.getElementById('metrics-grid').innerHTML = `
         <div class="metric-card metric-card--accent">
           <div class="metric-card__label">Leads</div>
           <div class="metric-card__value">${fmt(d.leads_30d)}</div>
@@ -467,9 +701,10 @@ export const prerender = false;
           <div class="metric-card__value" style="font-size:22px;">${fmtMs(d.avg_response_ms)}</div>
           <div class="metric-card__sub">to YES reply</div>
         </div>
+        ${scoreHtml}
+        ${earningsHtml}
       `;
 
-      // Acceptance rate bar
       if (d.acceptance_rate != null) {
         const rate = d.acceptance_rate;
         const color = rate >= 70 ? 'var(--green)' : rate >= 40 ? 'var(--amber)' : 'var(--red)';
@@ -479,17 +714,13 @@ export const prerender = false;
         document.getElementById('rate-section').style.display = 'block';
       }
 
-      // Top service labels
       if (d.top_service_labels?.length) {
         const pills = document.getElementById('top-services-pills');
         pills.innerHTML = d.top_service_labels.map(l => `<span class="pill">${esc(l)}</span>`).join('');
         document.getElementById('top-services-section').style.display = 'block';
       }
 
-      // Cached badge
-      if (d.cached) {
-        document.getElementById('metrics-cached-badge').textContent = '(cached)';
-      }
+      if (d.cached) document.getElementById('metrics-cached-badge').textContent = '(cached)';
     }
 
     function renderMetricsError() {
@@ -499,54 +730,208 @@ export const prerender = false;
          </div>`;
     }
 
-    // ── Workspace settings ──────────────────────────────────────────────────
-    async function loadWorkspaceSettings() {
-      try {
-        const data = await fetch('/api/workspace-settings', {
-          headers: authHeaders(),
-        }).then(r => r.json());
+    // ── Leads list ──────────────────────────────────────────────────────────
+    const LEAD_ICONS = {
+      dispatch_sent:     '📨',
+      dispatch_accepted: '✅',
+      dispatch_declined: '❌',
+      dispatch_timeout:  '⏱️',
+      call_initiated:    '📞',
+      call_connected:    '📞',
+      call_failed:       '📵',
+      video_started:     '🎥',
+      website_click:     '🔗',
+      search_match:      '🔍',
+      review_sent:       '⭐',
+      review_received:   '⭐',
+      claim_initiated:   '📋',
+      claim_verified:    '✔️',
+    };
+    const LEAD_LABELS = {
+      dispatch_sent:     'New lead dispatched',
+      dispatch_accepted: 'Lead accepted',
+      dispatch_declined: 'Lead declined',
+      dispatch_timeout:  'Lead timed out',
+      call_initiated:    'Call initiated',
+      call_connected:    'Call connected',
+      call_failed:       'Call failed',
+      video_started:     'Video session',
+      website_click:     'Website click',
+      search_match:      'Search match',
+      review_sent:       'Review request sent',
+      review_received:   'Review received',
+      claim_initiated:   'Claim started',
+      claim_verified:    'Claim verified',
+    };
+    const LEAD_BADGE = {
+      dispatch_accepted: 'badge--accepted',
+      dispatch_declined: 'badge--declined',
+      dispatch_timeout:  'badge--timeout',
+      dispatch_sent:     'badge--sent',
+    };
 
-        if (data.error) throw new Error(data.error);
-        populateWorkspaceForm(data);
+    async function loadLeads() {
+      if (!_phone) return;
+      const list = document.getElementById('leads-list');
+      try {
+        const data = await fetch(
+          `/api/dashboard/leads?phone=${encodeURIComponent(_phone)}&limit=30`,
+          { headers: authHeaders() },
+        ).then(r => r.json());
+
+        if (data.error || !Array.isArray(data.leads)) throw new Error(data.error ?? 'unexpected');
+        if (data.leads.length === 0) {
+          list.innerHTML = `<div style="font-size:14px;color:var(--text3);padding:8px 0;">No leads yet — they'll appear here when your first lead arrives.</div>`;
+          return;
+        }
+
+        list.innerHTML = data.leads.map(lead => {
+          const icon    = LEAD_ICONS[lead.event_type]  ?? '📋';
+          const label   = LEAD_LABELS[lead.event_type] ?? lead.event_type;
+          const badgeCls = LEAD_BADGE[lead.event_type]  ?? 'badge--other';
+          const service = lead.service_label ? esc(lead.service_label) : '';
+          const when    = fmtRelative(lead.created_at);
+          const isTimeout = lead.event_type === 'dispatch_timeout';
+          const recoverBtn = isTimeout
+            ? `<button class="recover-btn" type="button" onclick="recoverLead('${esc(lead.id ?? '')}', this)">
+                 <i class="bi bi-telephone"></i> Call now
+               </button>`
+            : '';
+
+          return `<div class="lead-item">
+            <div class="lead-item__icon">${icon}</div>
+            <div>
+              <div class="lead-item__label">${service ? service + ' — ' : ''}${esc(label)}</div>
+              <div class="lead-item__meta">${when}</div>
+            </div>
+            <div class="lead-item__spacer"></div>
+            ${recoverBtn}
+            <span class="lead-item__badge ${badgeCls}">${esc(lead.event_type.replace('dispatch_', '').replace('_', ' '))}</span>
+          </div>`;
+        }).join('');
       } catch {
-        document.getElementById('save-status').textContent = 'Could not load settings.';
-        document.getElementById('save-status').className = 'save-status show save-status--error';
+        list.innerHTML = `<div style="font-size:14px;color:var(--text3);padding:8px 0;">Could not load recent leads.</div>`;
       }
     }
 
-    function populateWorkspaceForm(d) {
-      document.getElementById('ws-tone').value          = d.tone ?? 'friendly';
-      document.getElementById('ws-length').value        = d.answer_length ?? 'balanced';
-      document.getElementById('ws-banned').value        = (d.banned_claims   ?? []).join('\n');
-      document.getElementById('ws-required').value      = (d.required_phrases ?? []).join('\n');
-      document.getElementById('ws-knowledge').value     = (d.knowledge_urls   ?? []).join('\n');
-      document.getElementById('ws-starters').value      = (d.starter_questions ?? []).join('\n');
-      document.getElementById('ws-collect-lead').checked    = !!d.collect_lead_details;
-      document.getElementById('ws-escalate-call').checked   = d.escalate_to_call !== false;
-      document.getElementById('ws-escalate-video').checked  = !!d.escalate_to_video;
+    // ── Twilio Call Logs ────────────────────────────────────────────────────
+    const CALL_STATUS_BADGE = {
+      completed:   { cls: 'badge--accepted', label: 'Completed' },
+      'in-progress': { cls: 'badge--sent',   label: 'In progress' },
+      'no-answer': { cls: 'badge--timeout',  label: 'No answer' },
+      busy:        { cls: 'badge--timeout',  label: 'Busy' },
+      failed:      { cls: 'badge--declined', label: 'Failed' },
+      canceled:    { cls: 'badge--other',    label: 'Canceled' },
+    };
+
+    async function loadCallLogs() {
+      if (!_phone) return;
+      const list = document.getElementById('call-logs-list');
+      try {
+        const data = await fetch(
+          `/api/dashboard/call-logs?phone=${encodeURIComponent(_phone)}&limit=30`,
+          { headers: authHeaders() },
+        ).then(r => r.json());
+
+        if (data.error) throw new Error(data.error);
+        const calls = data.calls ?? [];
+
+        if (calls.length === 0) {
+          list.innerHTML = `<div style="font-size:14px;color:var(--text3);padding:8px 0;">No Twilio call records found for this number.</div>`;
+          return;
+        }
+
+        list.innerHTML = calls.map(c => {
+          const isInbound = c.direction === 'inbound';
+          const icon      = isInbound ? '📲' : '📞';
+          const other     = isInbound ? c.from : c.to;
+          const dirLabel  = isInbound ? 'from' : 'to';
+          const dur       = c.duration > 0 ? fmtDuration(c.duration) : '';
+          const when      = fmtRelative(c.startTime);
+          const badge     = CALL_STATUS_BADGE[c.status] ?? { cls: 'badge--other', label: c.status };
+          return `<div class="lead-item">
+            <div class="lead-item__icon">${icon}</div>
+            <div>
+              <div class="lead-item__label">${esc(dirLabel)} ${esc(other)}${dur ? ' · ' + dur : ''}</div>
+              <div class="lead-item__meta">${when}${c.price ? ' · ' + esc(c.price) : ''}</div>
+            </div>
+            <div class="lead-item__spacer"></div>
+            <span class="lead-item__badge ${badge.cls}">${esc(badge.label)}</span>
+          </div>`;
+        }).join('');
+      } catch (e) {
+        list.innerHTML = `<div style="font-size:14px;color:var(--text3);padding:8px 0;">${e.message === 'Twilio credentials not configured' ? 'Add TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN to see call logs.' : 'Could not load call logs.'}</div>`;
+      }
     }
 
+    function fmtDuration(secs) {
+      if (secs < 60) return `${secs}s`;
+      const m = Math.floor(secs / 60), s = secs % 60;
+      return `${m}m ${s}s`;
+    }
+
+    // Missed call recovery — initiate a call to the consumer's number
+    async function recoverLead(leadId, btn) {
+      if (!leadId) { alert('Lead ID missing.'); return; }
+      btn.disabled = true;
+      btn.textContent = 'Calling…';
+      try {
+        // Fetch the lead's consumer_phone from our leads list (stored in data-* or re-query)
+        const data = await fetch(
+          `/api/dashboard/leads?phone=${encodeURIComponent(_phone)}&limit=100`,
+          { headers: authHeaders() },
+        ).then(r => r.json());
+        const lead = (data.leads ?? []).find(l => l.id === leadId);
+        if (!lead?.consumer_phone) {
+          alert('No consumer phone on record for this lead.');
+          btn.disabled = false; btn.innerHTML = '<i class="bi bi-telephone"></i> Call now';
+          return;
+        }
+        // Use the existing /api/call endpoint to initiate the callback
+        const res = await fetch('/api/call', {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({ phone: lead.consumer_phone }),
+        }).then(r => r.json());
+        if (res.error) throw new Error(res.error);
+        btn.textContent = 'Called ✓';
+        btn.style.color = 'var(--green)';
+        btn.style.borderColor = 'var(--green)';
+      } catch (e) {
+        alert(e.message ?? 'Failed to initiate callback.');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-telephone"></i> Call now';
+      }
+    }
+    window.recoverLead = recoverLead;
+
+    // ── Workspace form submit ────────────────────────────────────────────────
     function splitLines(str) {
       return str.split('\n').map(s => s.trim()).filter(Boolean);
     }
 
     document.getElementById('workspace-form').addEventListener('submit', async e => {
       e.preventDefault();
+      if (!_phone) return;
       const btn = document.getElementById('save-btn');
       const status = document.getElementById('save-status');
       btn.disabled = true;
       status.className = 'save-status';
 
+      const avgJobValue = parseInt(document.getElementById('ws-avg-job-value').value || '0', 10);
+
       const payload = {
+        businessPhone:        _phone,
         tone:                 document.getElementById('ws-tone').value,
-        answer_length:        document.getElementById('ws-length').value,
-        banned_claims:        splitLines(document.getElementById('ws-banned').value),
-        required_phrases:     splitLines(document.getElementById('ws-required').value),
-        knowledge_urls:       splitLines(document.getElementById('ws-knowledge').value),
-        starter_questions:    splitLines(document.getElementById('ws-starters').value),
-        collect_lead_details: document.getElementById('ws-collect-lead').checked,
-        escalate_to_call:     document.getElementById('ws-escalate-call').checked,
-        escalate_to_video:    document.getElementById('ws-escalate-video').checked,
+        answerLength:         document.getElementById('ws-length').value,
+        bannedClaims:         splitLines(document.getElementById('ws-banned').value),
+        requiredPhrases:      splitLines(document.getElementById('ws-required').value),
+        knowledgeUrls:        splitLines(document.getElementById('ws-knowledge').value),
+        starterQuestions:     splitLines(document.getElementById('ws-starters').value),
+        collectLeadDetails:   document.getElementById('ws-collect-lead').checked,
+        escalateToCall:       document.getElementById('ws-escalate-call').checked,
+        escalateToVideo:      document.getElementById('ws-escalate-video').checked,
+        avgJobValue:          isNaN(avgJobValue) ? 0 : avgJobValue,
       };
 
       try {
@@ -557,6 +942,7 @@ export const prerender = false;
         }).then(r => r.json());
 
         if (res.error) throw new Error(res.error);
+        _avgJobValue = avgJobValue;
         status.textContent = 'Settings saved!';
         status.className = 'save-status show save-status--success';
       } catch (err) {
@@ -613,14 +999,12 @@ export const prerender = false;
         }).then(r => r.json());
 
         if (res.error) throw new Error(res.error);
-        // Remove the list item
         btn.closest('li').remove();
       } catch (err) {
         alert(err.message ?? 'Failed to revoke passkey.');
         btn.disabled = false;
       }
     }
-    // expose for inline onclick
     window.revokePasskey = revokePasskey;
 
     // ── Escape helper ────────────────────────────────────────────────────────

@@ -28,11 +28,13 @@ import { inferServiceIntentHint, inferDiagnosisHint } from '../../lib/intent';
 import { scoreLeadUrgency } from '../../lib/lead-score';
 import { getCachedSummary } from '../../lib/website-summary';
 import { json, err } from '../../lib/api-helpers';
+import { upsertIntent, querySimilarBusinesses } from '../../lib/vector';
+import { readSearchCache, writeSearchCache, type CachedSearchResult } from '../../lib/search-cache';
 
 export const prerender = false;
 
-// 4-hour TTL — balances freshness with Places API cost
-const CACHE_TTL = 60 * 60 * 4;
+// L1 Redis TTL: 24 h (previously 4 h — safe to extend since Places data changes slowly)
+const CACHE_TTL = 60 * 60 * 24;
 
 /**
  * Cache key for combined match results.
@@ -42,7 +44,7 @@ function cacheKey(query: string, lat: number, lng: number): string {
   return `ss:match:v1:${query.toLowerCase().trim().replace(/\s+/g, ' ').slice(0, 120)}:${Math.round(lat * 10)}:${Math.round(lng * 10)}`;
 }
 
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, url: reqUrl }) => {
   const body = await request.json().catch(() => null);
   if (!body?.query || body?.lat == null || body?.lng == null) return err('missing query/lat/lng', 400);
 
@@ -50,58 +52,73 @@ export const POST: APIRoute = async ({ request }) => {
   const lat   = Number(body.lat);
   const lng   = Number(body.lng);
 
-  // Fast path: return cached combined result if available
-  const r  = redis();
-  const ck = cacheKey(query, lat, lng);
+  const r            = redis();
+  const ck           = cacheKey(query, lat, lng);
+  const locationCell = `${Math.round(lat * 10)}:${Math.round(lng * 10)}`;
+
+  // ── L1: Redis (24 h) ──────────────────────────────────────────────────────
   if (r) {
-    const cached = await r.get<{ businesses: unknown[]; label: string | null; intentQuery: string | null }>(ck).catch(() => null);
-    if (cached) return json(cached);
+    const cached = await r.get<CachedSearchResult>(ck).catch(() => null);
+    if (cached) {
+      const reranked = await vectorRerank(cached.businesses as Business[], query);
+      return json({ ...cached, businesses: reranked, _cache: 'redis' });
+    }
   }
 
-  // ── Layer 1: deterministic intent (<1ms, synchronous) ────────────────────
-  // Instantly resolves common service queries before any network call fires.
-  const intentHint = inferServiceIntentHint(query);
-  const layer1Query = intentHint?.query ?? null;
+  // ── L2: Supabase (30 d, stale-while-revalidate at 7 d) ───────────────────
+  const sbCached = await readSearchCache(ck);
+  if (sbCached) {
+    // Warm Redis from Supabase so the next hit is instant
+    if (r) r.set(ck, sbCached.result, { ex: CACHE_TTL }).catch(() => null);
 
-  // Use the Layer 1 query as the initial Places search seed if available;
-  // this gives us relevant results even before Cerebras responds.
+    // If stale, kick off a background refresh (fire-and-forget)
+    if (sbCached.stale) {
+      const origin = reqUrl.origin;
+      fetch(`${origin}/api/internal/refresh-search-cache`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': import.meta.env.SS_INTERNAL_SECRET || '' },
+        body: JSON.stringify({ cacheKey: ck, query, lat, lng }),
+      }).catch(() => null);
+    }
+
+    const reranked = await vectorRerank(sbCached.result.businesses as Business[], query);
+    return json({ ...sbCached.result, businesses: reranked, _cache: sbCached.stale ? 'supabase-stale' : 'supabase' });
+  }
+
+  // ── L3: Google Places + Cerebras ─────────────────────────────────────────
+
+  // Layer 1: deterministic intent (<1ms, synchronous)
+  const intentHint      = inferServiceIntentHint(query);
+  const layer1Query     = intentHint?.query ?? null;
   const initialPlacesQuery = layer1Query ?? query;
 
-  // ── Layer 2: Cerebras LLM + initial Places search (parallel) ─────────────
+  // Cerebras LLM + initial Places search in parallel
   const [match, initialResults] = await Promise.all([
     smartMatch(query),
     searchPlaces(initialPlacesQuery, lat, lng),
   ]);
 
-  // Prefer the AI-rewritten query only when it differs meaningfully from what
-  // we already searched — avoids a redundant Places API call.
   const aiQuery        = match.aiQuery;
   const aiQueryDiffers = aiQuery.toLowerCase() !== initialPlacesQuery.toLowerCase();
   const businesses     = aiQueryDiffers
     ? await searchPlaces(aiQuery, lat, lng)
     : initialResults;
 
-  // Merge labels: AI label preferred, Layer 1 fallback, then null
   const label =
     match.serviceLabelPlural ??
     match.serviceLabel ??
     intentHint?.pluralLabel ??
     null;
 
-  // Layer 1: diagnosis hint — "Water leak detected / Likely: pipe or fitting failure"
-  // Uses the resolved service query (AI-preferred, Layer 1 fallback) for best accuracy.
   const resolvedServiceQuery = (match.serviceLabel ?? layer1Query) || null;
   const diagnosisHint = resolvedServiceQuery
     ? inferDiagnosisHint(query, resolvedServiceQuery)
     : null;
 
-  // Lead urgency scoring — used by the consumer UI to surface "URGENT" callouts
   const urgency = scoreLeadUrgency(query);
-
   const rawBusinesses = businesses.length ? businesses : initialResults;
 
-  // Attach any pre-cached website summaries to the top 3 results so the
-  // client can render "Why this business" instantly without a separate fetch.
+  // Attach pre-cached website summaries to top 3
   const top3 = rawBusinesses.slice(0, 3);
   const cachedSummaries = await Promise.all(
     top3.map((b: Business) =>
@@ -116,21 +133,74 @@ export const POST: APIRoute = async ({ request }) => {
       : b,
   );
 
-  const result = {
+  const result: CachedSearchResult = {
     businesses:  enrichedBusinesses,
     label,
-    intentQuery:   layer1Query,     // Layer 1 canonical query (e.g. "plumber")
-    aiSummary:     match.aiSummary, // Cerebras one-sentence description of the need
-    diagnosisHint,                  // consumer-facing issue label + likely cause
-    urgencyTier:   urgency.tier,    // 'critical' | 'high' | 'medium' | 'low'
-    urgencyScore:  urgency.score,   // 0–100
+    intentQuery:  layer1Query,
+    aiSummary:    match.aiSummary,
+    diagnosisHint,
+    urgencyTier:  urgency.tier,
+    urgencyScore: urgency.score,
   };
 
-  // Cache the combined result (including pre-fetched summaries) for 4 hours
-  if (r && result.businesses.length) {
-    await r.set(ck, result, { ex: CACHE_TTL }).catch(() => null);
+  // ── Persist to L1 + L2 ───────────────────────────────────────────────────
+  if (result.businesses.length) {
+    if (r) r.set(ck, result, { ex: CACHE_TTL }).catch(() => null);
+    writeSearchCache(ck, query, locationCell, lat, lng, result).catch(() => null);
   }
 
-  return json(result);
+  // ── Vector intent embedding ───────────────────────────────────────────────
+  if (result.businesses.length) {
+    const bucket   = Math.floor(Date.now() / 300_000);
+    const searchId = `search:${locationCell}:${query.slice(0, 30).replace(/\W/g, '_')}:${bucket}`;
+    upsertIntent({
+      id:           searchId,
+      query,
+      summary:      match.aiSummary ?? undefined,
+      serviceLabel: match.serviceLabel ?? label,
+      locationCell,
+      createdAt:    new Date().toISOString(),
+    });
+  }
+
+  // Apply vector re-ranking on fresh results too (businesses may already be in DB)
+  const reranked = await vectorRerank(enrichedBusinesses, query);
+  return json({ ...result, businesses: reranked, _cache: 'miss' });
 };
+
+// ── Vector re-ranking ─────────────────────────────────────────────────────────
+//
+// Queries the "businesses" namespace for historical acceptance rates and boosts
+// businesses that have a track record of accepting leads in this service category.
+// Falls back to original order on any error or when the vector DB is not configured.
+
+async function vectorRerank(businesses: Business[], serviceQuery: string): Promise<Business[]> {
+  if (!businesses.length) return businesses;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1500);
+    const similar = await querySimilarBusinesses(serviceQuery, 30).finally(() => clearTimeout(timer));
+    if (!similar.length) return businesses;
+
+    // Build phone → acceptance rate map from vector results (IDs are phone numbers)
+    const acceptanceMap = new Map<string, number>();
+    for (const s of similar) {
+      const rate = Number(s.metadata?.acceptanceRate ?? 0);
+      if (rate > 0) acceptanceMap.set(String(s.id), rate);
+    }
+    if (!acceptanceMap.size) return businesses;
+
+    // Score: position score × (1 + acceptance boost up to 50%)
+    const n = businesses.length;
+    const scored = businesses.map((b, i) => {
+      const acceptance = acceptanceMap.get(b.phoneNumber || '') ?? 0;
+      const posScore   = (n - i) / n;
+      return { b, score: posScore * (1 + acceptance * 0.5) };
+    });
+    scored.sort((a, c) => c.score - a.score);
+    return scored.map(s => s.b);
+  } catch {
+    return businesses;
+  }
+}
 

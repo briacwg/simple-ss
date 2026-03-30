@@ -32,6 +32,7 @@ import { scoreLeadUrgency, urgencySmsPrefix } from '../../lib/lead-score';
 import { scheduleDispatchTimeout as qScheduleTimeout, scheduleReviewFollowup as qScheduleReview } from '../../lib/qstash';
 import { sendLeadSms as twilioSendLeadSms } from '../../lib/twilio';
 import { json, err, getClientIp, checkRateLimit } from '../../lib/api-helpers';
+import { upsertIntent, generateIntentSummary } from '../../lib/vector';
 
 export const prerender = false;
 
@@ -197,6 +198,14 @@ export const POST: APIRoute = async ({ request }) => {
     rawBusinesses = rawBusinesses.filter((_, i) => !optOutResults[i]);
   }
 
+  // Filter out businesses that have toggled themselves unavailable via the dashboard
+  if (r && rawBusinesses.length > 0) {
+    const unavailResults = await Promise.all(
+      rawBusinesses.map(b => r.get(`ss:biz:unavailable:${b.phone}`).catch(() => null)),
+    );
+    rawBusinesses = rawBusinesses.filter((_, i) => !unavailResults[i]);
+  }
+
   if (rawBusinesses.length === 0) return err('no available businesses', 422);
 
   // Score lead urgency for enriched SMS messaging
@@ -257,6 +266,19 @@ export const POST: APIRoute = async ({ request }) => {
       await r.set(DEDUP_KEY(consumerPhone, String(body.callRef)), dispatchId, { ex: DEDUP_TTL }).catch(() => null);
     }
   }
+
+  // Generate AI summary + embed intent into Upstash Vector (fully non-blocking)
+  generateIntentSummary(problem, serviceLabel).then(summary =>
+    upsertIntent({
+      id:           dispatchId,
+      query:        problem,
+      summary,
+      serviceLabel: serviceLabel,
+      locationCell: locationCell,
+      businessPhone: primaryPhone,
+      createdAt:    new Date(now).toISOString(),
+    }),
+  );
 
   // Notify the first `dispatchWidth` businesses simultaneously
   const notifySlice = businessQueue.slice(0, dispatchWidth);

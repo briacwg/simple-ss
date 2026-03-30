@@ -84,6 +84,10 @@ export interface BusinessWorkspaceSettings {
   knowledge_urls: string[];
   starter_questions: string[];
   notes: string | null;
+  /** Whether the business is currently accepting new leads (default true). */
+  available: boolean;
+  /** Average job value in USD — used for estimated earnings display (0 = not set). */
+  avg_job_value: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -147,6 +151,25 @@ export interface Database {
         BusinessDashboardMetrics,
         BusinessDashboardMetrics,
         Partial<BusinessDashboardMetrics>
+      >;
+      search_result_cache: TableDef<
+        {
+          cache_key: string; query: string; location_cell: string;
+          lat: number; lng: number; result: Record<string, unknown>;
+          hit_count: number; last_hit_at: string;
+          refresh_after: string; expires_at: string; created_at: string;
+        },
+        {
+          cache_key: string; query: string; location_cell: string;
+          lat: number; lng: number; result: Record<string, unknown>;
+          hit_count?: number; last_hit_at?: string;
+          refresh_after: string; expires_at: string; created_at?: string;
+        },
+        Partial<{
+          query: string; result: Record<string, unknown>;
+          hit_count: number; last_hit_at: string;
+          refresh_after: string; expires_at: string;
+        }>
       >;
     };
     Views:          { [_ in never]?: { Row: Record<string, unknown> } };

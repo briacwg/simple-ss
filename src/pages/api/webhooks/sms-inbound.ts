@@ -36,6 +36,7 @@ import { logTrainingEvent, logLeadEvent } from '../../../lib/supabase';
 import { sendSms, sendLeadSms as twilioSendLeadSms, sendConsumerAcceptedSms, sendConsumerSearchingSms } from '../../../lib/twilio';
 import { scoreLeadUrgency, urgencySmsPrefix } from '../../../lib/lead-score';
 import { scheduleDispatchTimeout } from '../../../lib/qstash';
+import { upsertIntent } from '../../../lib/vector';
 
 export const prerender = false;
 
@@ -163,6 +164,16 @@ async function handleAccept(
       consumer_phone: record.consumerPhone,
       meta:           { supplyLevel: record.supplyLevel, queuePosition: queueIdx, responseMs },
     }).catch(() => null),
+    // Update vector intent record with outcome (non-blocking)
+    upsertIntent({
+      id:           record.dispatchId,
+      query:        record.problem,
+      serviceLabel: record.serviceLabel,
+      locationCell: record.locationCell,
+      outcome:      'accepted',
+      businessPhone,
+      createdAt:    new Date(record.createdAt).toISOString(),
+    }),
   ]);
 
   // Notify the consumer so they can call the accepted business
@@ -217,6 +228,16 @@ async function handleDecline(
       consumer_phone: record.consumerPhone,
       meta:           { supplyLevel: record.supplyLevel, queuePosition: queueIdx, responseMs: declineResponseMs },
     }).catch(() => null),
+    // Update vector intent record with outcome (non-blocking)
+    upsertIntent({
+      id:           record.dispatchId,
+      query:        record.problem,
+      serviceLabel: record.serviceLabel,
+      locationCell: record.locationCell,
+      outcome:      'declined',
+      businessPhone,
+      createdAt:    new Date(record.createdAt).toISOString(),
+    }),
   ]);
 
   const updated: DispatchRecord = { ...record, businessQueue: updatedQueue };
@@ -246,6 +267,16 @@ export async function advanceQueue(
     // Queue exhausted — no more businesses to try
     const exhausted: DispatchRecord = { ...record, status: 'declined_all' };
     await r.set(DK(record.dispatchId), JSON.stringify(exhausted), { ex: DISPATCH_TTL }).catch(() => null);
+
+    // Record no_match outcome in vector so we can learn which intents are underserved
+    upsertIntent({
+      id:           record.dispatchId,
+      query:        record.problem,
+      serviceLabel: record.serviceLabel,
+      locationCell: record.locationCell,
+      outcome:      'no_match',
+      createdAt:    new Date(record.createdAt).toISOString(),
+    });
 
     if (record.consumerPhone) {
       await notifyConsumerSearching(record.consumerPhone);

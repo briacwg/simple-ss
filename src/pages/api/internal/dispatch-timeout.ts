@@ -16,6 +16,7 @@ import { redis } from '../../../lib';
 import { DK, BPDK, DISPATCH_TTL, type DispatchRecord } from '../dispatch';
 import { advanceQueue } from '../webhooks/sms-inbound';
 import { logTrainingEvent, logLeadEvent } from '../../../lib/supabase';
+import { upsertIntent } from '../../../lib/vector';
 import { json, err } from '../../../lib/api-helpers';
 
 export const prerender = false;
@@ -92,6 +93,17 @@ export const POST: APIRoute = async ({ request }) => {
       meta:           { supplyLevel: record.supplyLevel, queuePosition: queueIdx, windowSeconds: record.windowSeconds, responseMs },
     }).catch(() => null),
   ]);
+
+  // Update vector intent record with timeout outcome (non-blocking)
+  upsertIntent({
+    id:           dispatchId,
+    query:        record.problem,
+    serviceLabel: record.serviceLabel,
+    locationCell: record.locationCell,
+    outcome:      'timeout',
+    businessPhone,
+    createdAt:    new Date(record.createdAt).toISOString(),
+  });
 
   // Advance to next business — this function handles queue exhaustion and consumer notification
   await advanceQueue(r, updated, queueIdx);

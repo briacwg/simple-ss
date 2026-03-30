@@ -44,7 +44,14 @@ async function requireSession(request: Request): Promise<Response | null> {
 export const GET: APIRoute = async ({ url, request }) => {
   const authErr = await requireSession(request);
   if (authErr) return authErr;
-  const rawPhone = url.searchParams.get('phone');
+
+  // Phone may come from the query string (explicit) or from the session userId
+  // (when the client calls without a ?phone= param after login).
+  let rawPhone = url.searchParams.get('phone');
+  if (!rawPhone) {
+    const session = await getBusinessSession(request);
+    if (session?.userId) rawPhone = session.userId;
+  }
   if (!rawPhone) return err('phone query param required', 400);
 
   const phone = normalizePhone(rawPhone);
@@ -77,6 +84,8 @@ export const GET: APIRoute = async ({ url, request }) => {
       knowledge_urls:       [],
       starter_questions:    [],
       notes:                null,
+      available:            true,
+      avg_job_value:        0,
     };
     const { data: inserted, error: insertError } = await sb
       .from('business_workspace_settings')
@@ -142,6 +151,12 @@ export const PUT: APIRoute = async ({ request }) => {
     if (!allowed.includes(body.planSlug)) return err('planSlug must be free | starter | pro | elite', 400);
     patch.plan_slug = body.planSlug;
   }
+  if (body.available !== undefined) patch.available = Boolean(body.available);
+  if (body.avgJobValue !== undefined) {
+    const v = Number(body.avgJobValue);
+    if (!Number.isFinite(v) || v < 0) return err('avgJobValue must be a non-negative number', 400);
+    patch.avg_job_value = Math.round(Math.min(v, 99999));
+  }
 
   const { data, error } = await sb
     .from('business_workspace_settings')
@@ -151,10 +166,21 @@ export const PUT: APIRoute = async ({ request }) => {
 
   if (error) return err('failed to save settings', 500);
 
-  // Invalidate the workspace settings cache so the next AI request picks up
-  // the new settings without waiting for the 5-minute TTL to expire.
   const r = redis();
-  if (r) await r.del(SETTINGS_CACHE_KEY(phone)).catch(() => null);
+  if (r) {
+    // Invalidate the workspace settings cache
+    await r.del(SETTINGS_CACHE_KEY(phone)).catch(() => null);
+
+    // Sync availability flag to Redis so dispatch.ts can skip unavailable businesses
+    // without a Supabase round-trip on every dispatch
+    if (body.available !== undefined) {
+      if (!patch.available) {
+        await r.set(`ss:biz:unavailable:${phone}`, '1', { ex: 60 * 60 * 24 }).catch(() => null);
+      } else {
+        await r.del(`ss:biz:unavailable:${phone}`).catch(() => null);
+      }
+    }
+  }
 
   return json(data);
 };
